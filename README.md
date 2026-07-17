@@ -1,6 +1,6 @@
 # Halo Skin UK
 
-A responsive, standalone skincare storefront for `haloskinuk.com`, using the interaction quality of leading Shopify stores as inspiration without connecting to Shopify.
+A responsive, standalone skincare storefront for `haloskinuk.com`.
 
 ## Run locally
 
@@ -19,9 +19,11 @@ Products, filtering, search, persistent cart, quantities, discount entry, free-d
 ## Delivery methods
 
 - **⚡ Circum Same Day — £4.99:** available only when the configured service-area checker confirms the address. Includes live tracking, proof of delivery and delivery notifications.
-- **📦 Standard Delivery — £2.99:** nationwide Shopify standard fulfilment.
+- **📦 Standard Delivery — £2.99:** nationwide Halo standard fulfilment.
 
-`delivery-config.js` defines the Halo-only public endpoints. The service-area endpoint must return `{ "eligible": true|false }`; postcode coverage is owned by that service and is not hardcoded in the storefront. The payment-success endpoint must invoke `fulfilPaidHaloOrder` from `server/halo-fulfilment.mjs` using the approved Halo Circum, Shopify, order-store and notification adapters. Circum creation is rejected unless payment is verified as `succeeded`.
+`delivery-config.js` defines the Halo-only public endpoints. The service-area endpoint must return `{ "eligible": true|false }`; postcode coverage is owned by that service and is not hardcoded in the storefront. The payment-success endpoint must invoke `fulfilPaidHaloOrder` from `server/halo-fulfilment.mjs` using the approved Halo Circum, standard-fulfilment, order-store and notification adapters. Circum creation is rejected unless payment is verified as `succeeded`.
+
+For a paid Circum order, the handler resolves the active Halo warehouse, creates a warehouse-to-customer Circum delivery, stores the Circum Delivery ID first, broadcasts the request to riders, and moves the order to **Awaiting Rider**. Rider assignment, collection, out-for-delivery and delivered updates are applied through `applyCircumStatusUpdate`.
 
 Run validation with `npm test`.
 
