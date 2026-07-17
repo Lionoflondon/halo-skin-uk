@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3eee6" />
+    <meta name="description" content="Halo — ritual-led skincare for calm, luminous skin." />
+    <title>Halo — Skin, in a new light</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Italiana&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="image-overrides.css" />
+    <link rel="stylesheet" href="checkout.css" />
+    <link rel="stylesheet" href="delivery.css" />
+  </head>
+  <body>
+    <div class="announcement">Complimentary UK delivery on orders over £45</div>
+    <header class="site-header">
+      <button class="icon-button menu-button" aria-label="Open menu" data-menu-open><span></span><span></span></button>
+      <a class="wordmark" href="#top" aria-label="Halo home">HALO<sup>°</sup></a>
+      <nav class="desktop-nav" aria-label="Main navigation">
+        <a href="#shop">Shop</a><a href="#ritual">Our ritual</a><a href="#values">About</a>
+      </nav>
+      <div class="header-actions">
+        <button class="text-button search-toggle" data-search-open>Search</button>
+        <button class="text-button" data-cart-open>Bag <span class="cart-count">(0)</span></button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Peptide-powered lip care</p>
+          <h1>Your lips,<br><em>in full colour.</em></h1>
+          <p class="hero-intro">A nourishing wash of colour, made with peptides for softer, smoother lips. One effortless swipe, all-day Halo glow.</p>
+          <a class="button button-dark" href="#shop">Discover the collection <span>↗</span></a>
+        </div>
+        <div class="hero-image" data-image-slot="hero"><img src="assets/halo-hero.jpg" alt="Model applying Halo peptide lip tint at golden hour"></div>
+        <p class="vertical-note">Peptide-powered · Made for every day</p>
+      </section>
+
+      <section class="marquee" aria-label="Brand values"><div>SKIN BARRIER FIRST <i>✦</i> THOUGHTFULLY FORMULATED <i>✦</i> VEGAN &amp; CRUELTY FREE <i>✦</i> SKIN BARRIER FIRST <i>✦</i></div></section>
+
+      <section class="shop-section" id="shop">
+        <div class="section-heading">
+          <div><p class="eyebrow">The essentials</p><h2>Your daily <em>ritual.</em></h2></div>
+          <div class="shop-controls"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="Treatment">Treatments</button><button class="filter" data-filter="Tint">Tints</button><button class="filter" data-filter="Set">Sets</button></div>
+        </div>
+        <div class="product-grid" id="product-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="ritual-section" id="ritual">
+        <div class="ritual-image" data-image-slot="ritual"><img src="assets/halo-model-blue.jpg" alt="Halo lip treatments in a field of blue flowers"></div>
+        <div class="ritual-copy"><p class="eyebrow">Care meets colour</p><h2>The treatment<br><em>you’ll reach for.</em></h2><p>More than a tint. Halo wraps lips in cushiony hydration while peptides help support a softer, smoother look. Wear it alone, layer it, take it everywhere.</p><a class="text-link" href="#values">Why peptides? <span>→</span></a><div class="ingredient-notes"><span>01<br><b>Peptide complex</b></span><span>02<br><b>Comforting moisture</b></span><span>03<br><b>Buildable colour</b></span></div></div>
+      </section>
+
+      <section class="values-section" id="values">
+        <p class="eyebrow">Our promise</p><blockquote>“Skincare should feel like a moment of return — to yourself, to simplicity, to what your skin truly needs.”</blockquote><p class="signature">— The Halo philosophy</p>
+      </section>
+
+      <section class="newsletter">
+        <div><p class="eyebrow">Stay in our orbit</p><h2>Notes on skin,<br><em>ritual &amp; radiance.</em></h2></div>
+        <form id="newsletter-form"><label for="email">Email address</label><div><input id="email" type="email" placeholder="you@email.com" required><button type="submit">Join us →</button></div><p class="form-message" role="status"></p></form>
+      </section>
+    </main>
+
+    <footer><a class="wordmark footer-mark" href="#top">HALO<sup>°</sup></a><div><p>Explore</p><a href="#shop">Shop all</a><a href="#ritual">Our ritual</a><a href="#values">About Halo</a></div><div><p>Help</p><a href="mailto:hello@haloskinuk.com">Contact</a><a href="#">Delivery &amp; returns</a><a href="#">FAQs</a></div><div class="footer-meta"><p>© 2026 Halo Skin UK</p><a href="#">Instagram</a><a href="#">TikTok</a></div></footer>
+
+    <div class="overlay" data-overlay></div>
+    <aside class="drawer cart-drawer" aria-label="Shopping bag" aria-hidden="true"><div class="drawer-head"><h3>Your bag <span class="cart-count">(0)</span></h3><button class="icon-button close" data-drawer-close aria-label="Close">×</button></div><div class="cart-progress"><span></span><p>Add <b id="delivery-remaining">£45.00</b> more for complimentary delivery</p></div><div class="cart-items" id="cart-items"></div><div class="cart-empty" id="cart-empty"><p>Your bag is waiting.</p><a href="#shop" data-drawer-close>Explore the collection →</a></div><div class="cart-footer" id="cart-footer"><label>Discount code</label><div class="discount-row"><input id="discount-code" placeholder="Enter code"><button id="apply-discount">Apply</button></div><div class="subtotal"><span>Subtotal</span><strong id="cart-subtotal">£0.00</strong></div><p>Taxes included. Delivery calculated at checkout.</p><button class="button button-dark checkout" id="checkout-button">Checkout securely →</button></div></aside>
+    <aside class="drawer menu-drawer" aria-label="Menu" aria-hidden="true"><div class="drawer-head"><a class="wordmark" href="#top">HALO<sup>°</sup></a><button class="icon-button close" data-drawer-close>×</button></div><nav><a href="#shop" data-drawer-close>Shop <span>01</span></a><a href="#ritual" data-drawer-close>Our ritual <span>02</span></a><a href="#values" data-drawer-close>About Halo <span>03</span></a></nav></aside>
+    <div class="search-panel" aria-hidden="true"><button class="icon-button close" data-search-close>×</button><p class="eyebrow">Search Halo</p><div><input id="search-input" placeholder="What are you looking for?" autocomplete="off"><span>↵</span></div><div id="search-results"></div></div>
+    <div class="toast" role="status"></div>
+    <dialog class="checkout-modal" id="checkout-modal">
+      <form method="dialog" class="checkout-shell" id="checkout-form">
+        <div class="checkout-main">
+          <div class="checkout-brand"><span class="wordmark">HALO<sup>°</sup></span><button type="button" data-checkout-close aria-label="Close checkout">×</button></div>
+          <p class="checkout-steps">Information &nbsp;›&nbsp; Delivery &nbsp;›&nbsp; Payment</p>
+          <h3>Contact</h3><input name="email" type="email" placeholder="Email address" required>
+          <h3>Delivery</h3><div class="field-grid"><input name="firstName" placeholder="First name" required><input name="lastName" placeholder="Last name" required><input class="wide" name="address" placeholder="Address" required><input class="wide" name="city" placeholder="City" required><input name="postcode" placeholder="Postcode" required><select name="country"><option>United Kingdom</option><option>Ireland</option><option>France</option><option>Germany</option></select></div>
+          <div class="delivery-methods" id="delivery-methods">
+            <label class="delivery-option" data-method-card="circum">
+              <input type="radio" name="deliveryMethod" value="circum" disabled>
+              <span><strong>⚡ Circum Same Day</strong><br><small>Fast local delivery by Circum.<br>London &amp; surrounding service areas.</small></span><b>£4.99</b>
+            </label>
+            <div class="delivery-benefits">Same-day delivery · Live tracking · Proof of delivery · Delivery notifications</div>
+            <p class="service-area-message" id="service-area-message">Enter your delivery address to check Circum Same Day availability.</p>
+            <label class="delivery-option" data-method-card="standard">
+              <input type="radio" name="deliveryMethod" value="standard" checked>
+              <span><strong>📦 Standard Delivery</strong><br><small>Shopify standard shipping.<br>Available nationwide. Normal delivery times apply.</small></span><b>£2.99</b>
+            </label>
+          </div>
+          <button class="button button-dark pay-button" value="default">Continue to payment →</button>
+          <p class="checkout-note">Circum deliveries are created only after successful payment. Standard orders continue through Shopify fulfilment.</p>
+        </div>
+        <aside class="checkout-summary"><h3>Order summary</h3><div id="checkout-items"></div><div class="summary-line"><span>Subtotal</span><b id="checkout-subtotal">£0.00</b></div><div class="summary-line"><span>Delivery</span><b id="checkout-delivery">£3.95</b></div><div class="summary-line total"><span>Total</span><b id="checkout-total">£0.00</b></div></aside>
+      </form>
+    </dialog>
+    <script src="delivery-config.js"></script>
+    <script src="delivery.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
