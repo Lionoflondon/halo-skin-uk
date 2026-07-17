@@ -13,12 +13,13 @@
     <link rel="stylesheet" href="image-overrides.css" />
     <link rel="stylesheet" href="checkout.css" />
     <link rel="stylesheet" href="delivery.css" />
+    <link rel="stylesheet" href="logo.css" />
   </head>
   <body>
     <div class="announcement">Complimentary UK delivery on orders over £45</div>
     <header class="site-header">
       <button class="icon-button menu-button" aria-label="Open menu" data-menu-open><span></span><span></span></button>
-      <a class="wordmark" href="#top" aria-label="Halo home">HALO<sup>°</sup></a>
+      <a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a>
       <nav class="desktop-nav" aria-label="Main navigation">
         <a href="#shop">Shop</a><a href="#ritual">Our ritual</a><a href="#values">About</a>
       </nav>
@@ -65,17 +66,17 @@
       </section>
     </main>
 
-    <footer><a class="wordmark footer-mark" href="#top">HALO<sup>°</sup></a><div><p>Explore</p><a href="#shop">Shop all</a><a href="#ritual">Our ritual</a><a href="#values">About Halo</a></div><div><p>Help</p><a href="mailto:hello@haloskinuk.com">Contact</a><a href="#">Delivery &amp; returns</a><a href="#">FAQs</a></div><div class="footer-meta"><p>© 2026 Halo Skin UK</p><a href="#">Instagram</a><a href="#">TikTok</a></div></footer>
+    <footer><a class="brand-logo brand-logo-light footer-mark" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><div><p>Explore</p><a href="#shop">Shop all</a><a href="#ritual">Our ritual</a><a href="#values">About Halo</a></div><div><p>Help</p><a href="mailto:hello@haloskinuk.com">Contact</a><a href="#">Delivery &amp; returns</a><a href="#">FAQs</a></div><div class="footer-meta"><p>© 2026 Halo Skin UK</p><a href="#">Instagram</a><a href="#">TikTok</a></div></footer>
 
     <div class="overlay" data-overlay></div>
     <aside class="drawer cart-drawer" aria-label="Shopping bag" aria-hidden="true"><div class="drawer-head"><h3>Your bag <span class="cart-count">(0)</span></h3><button class="icon-button close" data-drawer-close aria-label="Close">×</button></div><div class="cart-progress"><span></span><p>Add <b id="delivery-remaining">£45.00</b> more for complimentary delivery</p></div><div class="cart-items" id="cart-items"></div><div class="cart-empty" id="cart-empty"><p>Your bag is waiting.</p><a href="#shop" data-drawer-close>Explore the collection →</a></div><div class="cart-footer" id="cart-footer"><label>Discount code</label><div class="discount-row"><input id="discount-code" placeholder="Enter code"><button id="apply-discount">Apply</button></div><div class="subtotal"><span>Subtotal</span><strong id="cart-subtotal">£0.00</strong></div><p>Taxes included. Delivery calculated at checkout.</p><button class="button button-dark checkout" id="checkout-button">Checkout securely →</button></div></aside>
-    <aside class="drawer menu-drawer" aria-label="Menu" aria-hidden="true"><div class="drawer-head"><a class="wordmark" href="#top">HALO<sup>°</sup></a><button class="icon-button close" data-drawer-close>×</button></div><nav><a href="#shop" data-drawer-close>Shop <span>01</span></a><a href="#ritual" data-drawer-close>Our ritual <span>02</span></a><a href="#values" data-drawer-close>About Halo <span>03</span></a></nav></aside>
+    <aside class="drawer menu-drawer" aria-label="Menu" aria-hidden="true"><div class="drawer-head"><a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><button class="icon-button close" data-drawer-close>×</button></div><nav><a href="#shop" data-drawer-close>Shop <span>01</span></a><a href="#ritual" data-drawer-close>Our ritual <span>02</span></a><a href="#values" data-drawer-close>About Halo <span>03</span></a></nav></aside>
     <div class="search-panel" aria-hidden="true"><button class="icon-button close" data-search-close>×</button><p class="eyebrow">Search Halo</p><div><input id="search-input" placeholder="What are you looking for?" autocomplete="off"><span>↵</span></div><div id="search-results"></div></div>
     <div class="toast" role="status"></div>
     <dialog class="checkout-modal" id="checkout-modal">
       <form method="dialog" class="checkout-shell" id="checkout-form">
         <div class="checkout-main">
-          <div class="checkout-brand"><span class="wordmark">HALO<sup>°</sup></span><button type="button" data-checkout-close aria-label="Close checkout">×</button></div>
+          <div class="checkout-brand"><span class="brand-logo brand-logo-checkout"><img src="assets/halo-logo.jpg" alt="Halo"></span><button type="button" data-checkout-close aria-label="Close checkout">×</button></div>
           <p class="checkout-steps">Information &nbsp;›&nbsp; Delivery &nbsp;›&nbsp; Payment</p>
           <h3>Contact</h3><input name="email" type="email" placeholder="Email address" required>
           <h3>Delivery</h3><div class="field-grid"><input name="firstName" placeholder="First name" required><input name="lastName" placeholder="Last name" required><input class="wide" name="address" placeholder="Address" required><input class="wide" name="city" placeholder="City" required><input name="postcode" placeholder="Postcode" required><select name="country"><option>United Kingdom</option><option>Ireland</option><option>France</option><option>Germany</option></select></div>
