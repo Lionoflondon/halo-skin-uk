@@ -3,83 +3,94 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f3eee6" />
-    <meta name="description" content="Halo — ritual-led skincare for calm, luminous skin." />
-    <title>Halo — Skin, in a new light</title>
+    <meta name="theme-color" content="#FDFCFB" />
+    <meta name="description" content="Halo — peptide-powered lip care. Every woman is an angel." />
+    <title>Halo — Every woman is an angel</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Italiana&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="image-overrides.css" />
     <link rel="stylesheet" href="checkout.css" />
     <link rel="stylesheet" href="delivery.css" />
-    <link rel="stylesheet" href="logo.css" />
+    <link rel="stylesheet" href="home-rebuild.css?v=2" />
+    <link rel="stylesheet" href="logo.css?v=3" />
   </head>
-  <body>
-    <div class="announcement">Complimentary UK delivery on orders over £45</div>
+  <body class="halo-home">
+    <div class="announcement">Complimentary UK delivery over £45 <span aria-hidden="true">·</span> Same-day London delivery with Circum</div>
     <header class="site-header">
-      <button class="icon-button menu-button" aria-label="Open menu" data-menu-open><span></span><span></span></button>
+      <button class="icon-button menu-button" aria-label="Open menu" aria-controls="menu-drawer" aria-expanded="false" data-menu-open><span></span><span></span></button>
       <a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a>
       <nav class="desktop-nav" aria-label="Main navigation">
-        <a href="#shop">Shop</a><a href="#ritual">Our ritual</a><a href="#values">About</a>
+        <a href="#shop">Shop</a><a href="#categories">Collections</a><a href="#story">Our story</a>
       </nav>
       <div class="header-actions">
-        <button class="text-button search-toggle" data-search-open>Search</button>
-        <button class="text-button" data-cart-open>Bag <span class="cart-count">(0)</span></button>
+        <button class="text-button search-toggle" aria-controls="search-panel" aria-expanded="false" data-search-open>Search</button>
+        <button class="text-button" data-cart-open aria-label="Open shopping bag" aria-controls="cart-drawer" aria-expanded="false">Bag <span class="cart-count" aria-live="polite">(0)</span></button>
       </div>
     </header>
 
     <main id="top">
-      <section class="hero">
+      <section class="hero celestial-hero">
+        <div class="cloud-layer cloud-one" aria-hidden="true"></div><div class="cloud-layer cloud-two" aria-hidden="true"></div>
         <div class="hero-copy">
           <p class="eyebrow">Peptide-powered lip care</p>
-          <h1>Your lips,<br><em>in full colour.</em></h1>
-          <p class="hero-intro">A nourishing wash of colour, made with peptides for softer, smoother lips. One effortless swipe, all-day Halo glow.</p>
-          <a class="button button-dark" href="#shop">Discover the collection <span>↗</span></a>
+          <h1>Every woman<br><em>is an angel.</em></h1>
+          <p class="hero-intro">Quietly transformative lip treatments, created to soften, nourish and illuminate your everyday ritual.</p>
+          <a class="button iridescent-button" href="#shop">Shop Halo <span aria-hidden="true">→</span></a>
+          <div class="hero-proof" aria-label="Halo product promises"><span>Peptide enriched</span><span>Vegan</span><span>Made for every day</span></div>
         </div>
-        <div class="hero-image" data-image-slot="hero"><img src="assets/halo-hero.jpg" alt="Model applying Halo peptide lip tint at golden hour"></div>
-        <p class="vertical-note">Peptide-powered · Made for every day</p>
+        <figure class="hero-image floating-image" data-image-slot="hero"><img src="assets/halo-hero.jpg" alt="Model applying pink Halo peptide lip tint in golden light"><figcaption class="sr-only">Soft colour. Lasting care.</figcaption></figure>
       </section>
 
-      <section class="marquee" aria-label="Brand values"><div>SKIN BARRIER FIRST <i>✦</i> THOUGHTFULLY FORMULATED <i>✦</i> VEGAN &amp; CRUELTY FREE <i>✦</i> SKIN BARRIER FIRST <i>✦</i></div></section>
+      <section class="marquee brand-ribbon" aria-label="Halo product values"><div><span>Peptide care</span><i aria-hidden="true">·</i><span>Buildable colour</span><i aria-hidden="true">·</i><span>Comforting moisture</span><i aria-hidden="true">·</i><span>Thoughtfully made</span><i aria-hidden="true">·</i><span aria-hidden="true">Peptide care</span><i aria-hidden="true">·</i><span aria-hidden="true">Buildable colour</span><i aria-hidden="true">·</i><span aria-hidden="true">Comforting moisture</span><i aria-hidden="true">·</i><span aria-hidden="true">Thoughtfully made</span><i aria-hidden="true">·</i></div></section>
+
+      <section class="category-section cloud-section" id="categories">
+        <div class="section-intro"><p class="eyebrow">Find your Halo</p><h2>A ritual, made <em>celestial.</em></h2><p>Three ways to soften, tint and care for your lips—each made to feel beautifully effortless.</p></div>
+        <div class="category-grid">
+          <button class="category-card" data-category="Treatment"><img src="assets/halo-pink-botanical.jpg" alt="Halo clear lip treatment among botanicals"><span class="category-card__overlay"><small>01</small><span class="category-card__title">Treatments</span><span>Care &amp; restore</span></span></button>
+          <button class="category-card" data-category="Tint"><img src="assets/halo-lifestyle.jpg" alt="Three Halo peptide lip tint shades in morning light"><span class="category-card__overlay"><small>02</small><span class="category-card__title">Lip tints</span><span>Colour &amp; comfort</span></span></button>
+          <button class="category-card" data-category="Set"><img src="assets/halo-trio-warm.jpg" alt="Halo lip trio with dried flowers and stones"><span class="category-card__overlay"><small>03</small><span class="category-card__title">Halo sets</span><span>The complete ritual</span></span></button>
+        </div>
+      </section>
 
       <section class="shop-section" id="shop">
         <div class="section-heading">
-          <div><p class="eyebrow">The essentials</p><h2>Your daily <em>ritual.</em></h2></div>
+          <div><p class="eyebrow">The collection</p><h2>Meet your <em>essentials.</em></h2></div>
           <div class="shop-controls"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="Treatment">Treatments</button><button class="filter" data-filter="Tint">Tints</button><button class="filter" data-filter="Set">Sets</button></div>
         </div>
         <div class="product-grid" id="product-grid" aria-live="polite"></div>
       </section>
 
-      <section class="ritual-section" id="ritual">
-        <div class="ritual-image" data-image-slot="ritual"><img src="assets/halo-model-blue.jpg" alt="Halo lip treatments in a field of blue flowers"></div>
-        <div class="ritual-copy"><p class="eyebrow">Care meets colour</p><h2>The treatment<br><em>you’ll reach for.</em></h2><p>More than a tint. Halo wraps lips in cushiony hydration while peptides help support a softer, smoother look. Wear it alone, layer it, take it everywhere.</p><a class="text-link" href="#values">Why peptides? <span>→</span></a><div class="ingredient-notes"><span>01<br><b>Peptide complex</b></span><span>02<br><b>Comforting moisture</b></span><span>03<br><b>Buildable colour</b></span></div></div>
+      <section class="ritual-section editorial-section" id="story">
+        <figure class="ritual-image editorial-image" data-image-slot="ritual"><img src="assets/halo-model-blue.jpg" alt="Woman holding Halo lip treatments among deep blue flowers"></figure>
+        <div class="ritual-copy editorial-copy"><p class="eyebrow">The Halo story</p><h2>Care that feels<br><em>like a little light.</em></h2><p>We believe the smallest rituals can change the way you carry yourself. Halo pairs peptide-powered care with sheer, wearable colour—so every application feels like a return to your most luminous self.</p><a class="text-link" href="#values">Discover our philosophy <span aria-hidden="true">→</span></a><div class="ingredient-notes"><span>01<br><b>Peptide complex</b></span><span>02<br><b>Cushiony hydration</b></span><span>03<br><b>Buildable colour</b></span></div></div>
       </section>
 
-      <section class="values-section" id="values">
-        <p class="eyebrow">Our promise</p><blockquote>“Skincare should feel like a moment of return — to yourself, to simplicity, to what your skin truly needs.”</blockquote><p class="signature">— The Halo philosophy</p>
+      <section class="values-section celestial-quote" id="values">
+        <div class="cloud-layer cloud-three" aria-hidden="true"></div><p class="eyebrow">Our promise</p><blockquote>“Made for the woman you are,<br>and the light you already carry.”</blockquote><p class="signature">Every woman is an angel</p>
       </section>
 
-      <section class="newsletter">
-        <div><p class="eyebrow">Stay in our orbit</p><h2>Notes on skin,<br><em>ritual &amp; radiance.</em></h2></div>
-        <form id="newsletter-form"><label for="email">Email address</label><div><input id="email" type="email" placeholder="you@email.com" required><button type="submit">Join us →</button></div><p class="form-message" role="status"></p></form>
+      <section class="newsletter-wrap cloud-section">
+        <div class="newsletter glass-panel"><div><p class="eyebrow">Letters from Halo</p><h2>Stay close<br><em>to the light.</em></h2><p>New shades, thoughtful rituals and a little inspiration, delivered quietly to your inbox.</p></div>
+        <form id="newsletter-form"><label for="email">Email address</label><div><input id="email" type="email" placeholder="you@email.com" autocomplete="email" required><button class="iridescent-button" type="submit">Join Halo <span aria-hidden="true">→</span></button></div><p class="form-message" role="status"></p></form></div>
       </section>
     </main>
 
-    <footer><a class="brand-logo brand-logo-light footer-mark" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><div><p>Explore</p><a href="#shop">Shop all</a><a href="#ritual">Our ritual</a><a href="#values">About Halo</a></div><div><p>Help</p><a href="mailto:hello@haloskinuk.com">Contact</a><a href="#">Delivery &amp; returns</a><a href="#">FAQs</a></div><div class="footer-meta"><p>© 2026 Halo Skin UK</p><a href="#">Instagram</a><a href="#">TikTok</a></div></footer>
+    <footer><div class="footer-brand"><a class="brand-logo brand-logo-light footer-mark" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><p>Every woman is an angel.</p></div><div><p>Explore</p><a href="#shop">Shop all</a><a href="#categories">Collections</a><a href="#story">Our story</a></div><div><p>Help</p><a href="mailto:hello@haloskinuk.com">Contact</a><a href="#">Delivery &amp; returns</a><a href="#">FAQs</a></div><div class="footer-meta"><p>© 2026 Halo Skin UK</p><a href="#">Instagram</a><a href="#">TikTok</a></div></footer>
 
     <div class="overlay" data-overlay></div>
-    <aside class="drawer cart-drawer" aria-label="Shopping bag" aria-hidden="true"><div class="drawer-head"><h3>Your bag <span class="cart-count">(0)</span></h3><button class="icon-button close" data-drawer-close aria-label="Close">×</button></div><div class="cart-progress"><span></span><p>Add <b id="delivery-remaining">£45.00</b> more for complimentary delivery</p></div><div class="cart-items" id="cart-items"></div><div class="cart-empty" id="cart-empty"><p>Your bag is waiting.</p><a href="#shop" data-drawer-close>Explore the collection →</a></div><div class="cart-footer" id="cart-footer"><label>Discount code</label><div class="discount-row"><input id="discount-code" placeholder="Enter code"><button id="apply-discount">Apply</button></div><div class="subtotal"><span>Subtotal</span><strong id="cart-subtotal">£0.00</strong></div><p>Taxes included. Delivery calculated at checkout.</p><button class="button button-dark checkout" id="checkout-button">Checkout securely →</button></div></aside>
-    <aside class="drawer menu-drawer" aria-label="Menu" aria-hidden="true"><div class="drawer-head"><a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><button class="icon-button close" data-drawer-close>×</button></div><nav><a href="#shop" data-drawer-close>Shop <span>01</span></a><a href="#ritual" data-drawer-close>Our ritual <span>02</span></a><a href="#values" data-drawer-close>About Halo <span>03</span></a></nav></aside>
-    <div class="search-panel" aria-hidden="true"><button class="icon-button close" data-search-close>×</button><p class="eyebrow">Search Halo</p><div><input id="search-input" placeholder="What are you looking for?" autocomplete="off"><span>↵</span></div><div id="search-results"></div></div>
+    <aside class="drawer cart-drawer glass-panel" id="cart-drawer" role="dialog" aria-modal="true" aria-label="Shopping bag" aria-hidden="true"><div class="drawer-head"><h3>Your bag <span class="cart-count">(0)</span></h3><button class="icon-button close" data-drawer-close aria-label="Close shopping bag">×</button></div><div class="cart-progress"><span></span><p>Add <b id="delivery-remaining">£45.00</b> more for complimentary delivery</p></div><div class="cart-items" id="cart-items"></div><div class="cart-empty" id="cart-empty"><div class="empty-cloud" aria-hidden="true"></div><p>Your cart is as light as air.</p><a href="#shop" data-drawer-close>Explore the collection →</a></div><div class="cart-footer" id="cart-footer"><label for="discount-code">Discount code</label><div class="discount-row"><input id="discount-code" placeholder="Enter code"><button id="apply-discount">Apply</button></div><div class="subtotal"><span>Subtotal</span><strong id="cart-subtotal">£0.00</strong></div><p>Taxes included. Delivery calculated at checkout.</p><button class="button iridescent-button checkout" id="checkout-button">Checkout securely →</button></div></aside>
+    <aside class="drawer menu-drawer" id="menu-drawer" role="dialog" aria-modal="true" aria-label="Menu" aria-hidden="true"><div class="drawer-head"><a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><button class="icon-button close" data-drawer-close aria-label="Close menu">×</button></div><nav><a href="#shop" data-drawer-close>Shop <span>01</span></a><a href="#categories" data-drawer-close>Collections <span>02</span></a><a href="#story" data-drawer-close>Our story <span>03</span></a></nav></aside>
+    <div class="search-panel glass-panel" id="search-panel" role="dialog" aria-modal="true" aria-label="Search Halo" aria-hidden="true"><button class="icon-button close" data-search-close aria-label="Close search">×</button><p class="eyebrow">Search Halo</p><div><label class="sr-only" for="search-input">Search products</label><input id="search-input" placeholder="What are you looking for?" autocomplete="off"><span aria-hidden="true">↵</span></div><div id="search-results"></div></div>
     <div class="toast" role="status"></div>
     <dialog class="checkout-modal" id="checkout-modal">
       <form method="dialog" class="checkout-shell" id="checkout-form">
         <div class="checkout-main">
           <div class="checkout-brand"><span class="brand-logo brand-logo-checkout"><img src="assets/halo-logo.jpg" alt="Halo"></span><button type="button" data-checkout-close aria-label="Close checkout">×</button></div>
           <p class="checkout-steps">Information &nbsp;›&nbsp; Delivery &nbsp;›&nbsp; Payment</p>
-          <h3>Contact</h3><input name="email" type="email" placeholder="Email address" required>
-          <h3>Delivery</h3><div class="field-grid"><input name="firstName" placeholder="First name" required><input name="lastName" placeholder="Last name" required><input class="wide" name="address" placeholder="Address" required><input class="wide" name="city" placeholder="City" required><input name="postcode" placeholder="Postcode" required><select name="country"><option>United Kingdom</option><option>Ireland</option><option>France</option><option>Germany</option></select></div>
+          <h3>Contact</h3><input name="email" type="email" aria-label="Email address" placeholder="Email address" autocomplete="email" required>
+          <h3>Delivery</h3><div class="field-grid"><input name="firstName" aria-label="First name" placeholder="First name" autocomplete="given-name" required><input name="lastName" aria-label="Last name" placeholder="Last name" autocomplete="family-name" required><input class="wide" name="address" aria-label="Delivery address" placeholder="Address" autocomplete="street-address" required><input class="wide" name="city" aria-label="City" placeholder="City" autocomplete="address-level2" required><input name="postcode" aria-label="Postcode" placeholder="Postcode" autocomplete="postal-code" required><select name="country" aria-label="Country" autocomplete="country-name"><option>United Kingdom</option><option>Ireland</option><option>France</option><option>Germany</option></select></div>
           <div class="delivery-methods" id="delivery-methods">
             <label class="delivery-option" data-method-card="circum">
               <input type="radio" name="deliveryMethod" value="circum" disabled>
@@ -95,11 +106,11 @@
           <button class="button button-dark pay-button" value="default">Continue to payment →</button>
           <p class="checkout-note">Circum deliveries are created only after successful payment. Standard orders continue through Halo fulfilment.</p>
         </div>
-        <aside class="checkout-summary"><h3>Order summary</h3><div id="checkout-items"></div><div class="summary-line"><span>Subtotal</span><b id="checkout-subtotal">£0.00</b></div><div class="summary-line"><span>Delivery</span><b id="checkout-delivery">£3.95</b></div><div class="summary-line total"><span>Total</span><b id="checkout-total">£0.00</b></div></aside>
+        <aside class="checkout-summary"><h3>Order summary</h3><div id="checkout-items"></div><div class="summary-line"><span>Subtotal</span><b id="checkout-subtotal">£0.00</b></div><div class="summary-line"><span>Delivery</span><b id="checkout-delivery">£2.99</b></div><div class="summary-line total"><span>Total</span><b id="checkout-total">£0.00</b></div></aside>
       </form>
     </dialog>
     <script src="delivery-config.js"></script>
     <script src="delivery.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=5"></script>
   </body>
 </html>
