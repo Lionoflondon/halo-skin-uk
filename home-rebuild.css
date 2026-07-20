@@ -880,3 +880,104 @@
   .halo-home .values-section::after,
   .halo-home .newsletter-wrap::after { right: -145px; }
 }
+
+/* Editorial Halo hero: full-bleed campaign image with a cloud-glass story panel. */
+.halo-home .hero {
+  place-items: stretch;
+  background: #162c41;
+}
+.halo-home .hero .hero-image img { object-position: 50% 31%; }
+.halo-home .hero::after {
+  background:
+    linear-gradient(90deg, rgba(11,26,40,.3) 0%, rgba(11,26,40,.05) 52%, rgba(11,26,40,.2) 100%),
+    linear-gradient(180deg, rgba(9,22,35,.06), rgba(9,22,35,.38));
+}
+.halo-home .hero .hero-copy {
+  width: min(52vw, 720px);
+  margin: 146px 0 46px;
+  padding: clamp(44px, 6vw, 88px) clamp(40px, 6vw, 90px);
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.68);
+  border-left: 0;
+  border-radius: 0 44px 44px 0;
+  background:
+    radial-gradient(circle at 5% 5%, rgba(255,255,255,.95), transparent 31%),
+    linear-gradient(145deg, rgba(237,248,254,.9), rgba(201,231,247,.8));
+  box-shadow: 24px 28px 80px rgba(10,34,52,.18);
+  color: var(--sky-ink);
+  text-align: left;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.halo-home .hero .hero-copy::after {
+  position: absolute;
+  right: -80px;
+  bottom: -45px;
+  width: 270px;
+  height: 170px;
+  background:
+    radial-gradient(circle at 20% 70%, rgba(255,255,255,.55) 0 23%, transparent 24%),
+    radial-gradient(circle at 48% 45%, rgba(255,255,255,.5) 0 31%, transparent 32%),
+    radial-gradient(circle at 78% 68%, rgba(255,255,255,.42) 0 25%, transparent 26%);
+  content: "";
+  filter: blur(8px);
+  pointer-events: none;
+}
+.halo-home .hero .eyebrow {
+  margin-bottom: 24px;
+  color: rgba(36,62,82,.72);
+}
+.halo-home .hero h1 {
+  max-width: 610px;
+  margin: 0;
+  color: var(--sky-ink);
+  font-size: clamp(4.6rem, 7.4vw, 8rem);
+  line-height: .82;
+}
+.halo-home .hero h1 em { color: #466f8b; }
+.halo-home .hero .hero-intro {
+  max-width: 470px;
+  margin: 30px 0 32px;
+  color: rgba(36,62,82,.78);
+  font-size: .92rem;
+}
+.halo-home .hero .iridescent-button {
+  border-color: rgba(36,62,82,.22);
+  background: var(--sky-ink);
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(36,62,82,.18);
+}
+.halo-home .hero .hero-proof {
+  margin: 28px 0 0;
+  justify-content: flex-start;
+  color: rgba(36,62,82,.68);
+}
+
+@media (max-width: 900px) {
+  .halo-home .hero { min-height: 900px; align-items: end; }
+  .halo-home .hero .hero-image img { object-position: 50% 22%; }
+  .halo-home .hero .hero-copy {
+    width: calc(100% - 32px);
+    min-height: 0;
+    margin: 0 16px 22px;
+    padding: 42px clamp(24px, 7vw, 52px);
+    align-self: end;
+    border: 1px solid rgba(255,255,255,.72);
+    border-radius: 28px;
+  }
+  .halo-home .hero h1 { font-size: clamp(3.7rem, 12vw, 6rem); }
+  .halo-home .hero .hero-intro { margin-block: 24px; }
+}
+
+@media (max-width: 620px) {
+  .halo-home .hero { min-height: 920px; }
+  .halo-home .hero .hero-copy { padding: 36px 24px 32px; }
+  .halo-home .hero h1 { font-size: clamp(3.35rem, 16vw, 4.8rem); }
+  .halo-home .hero .hero-proof { gap: 7px 10px; font-size: .55rem; }
+  .halo-home .hero .hero-proof span + span::before { margin-right: 10px; }
+}
