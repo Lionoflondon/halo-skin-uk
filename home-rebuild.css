@@ -981,3 +981,92 @@
   .halo-home .hero .hero-proof { gap: 7px 10px; font-size: .55rem; }
   .halo-home .hero .hero-proof span + span::before { margin-right: 10px; }
 }
+
+/* Uninterrupted hero photograph with the campaign message beneath it. */
+.halo-home .hero {
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  display: grid;
+  grid-template-rows: minmax(660px, 80svh) auto;
+  overflow: hidden;
+  background: var(--halo-blue);
+}
+.halo-home .hero .hero-image {
+  position: relative;
+  z-index: 0;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  grid-row: 1;
+}
+.halo-home .hero .hero-image img { object-position: 50% 28%; }
+.halo-home .hero::after {
+  display: none;
+}
+.halo-home .hero .cloud-layer { display: none; }
+.halo-home .hero .hero-copy {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  margin: 0;
+  padding: clamp(64px, 7vw, 104px) var(--halo-gutter);
+  grid-row: 2;
+  align-self: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+  grid-template-rows: auto auto auto;
+  align-items: end;
+  column-gap: clamp(50px, 9vw, 150px);
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse at 4% 18%, rgba(255,255,255,.78), transparent 28%),
+    linear-gradient(145deg, #e4f4fc, var(--halo-blue));
+  box-shadow: none;
+  text-align: left;
+  backdrop-filter: none;
+}
+.halo-home .hero .hero-copy::after {
+  right: -45px;
+  bottom: -30px;
+  opacity: .75;
+}
+.halo-home .hero .eyebrow { grid-area: 1 / 1; }
+.halo-home .hero h1 {
+  grid-area: 2 / 1 / 4 / 2;
+  max-width: 760px;
+  font-size: clamp(4.5rem, 7vw, 8rem);
+}
+.halo-home .hero .hero-intro {
+  grid-area: 1 / 2;
+  margin: 0 0 28px;
+}
+.halo-home .hero .iridescent-button { grid-area: 2 / 2; justify-self: start; }
+.halo-home .hero .hero-proof { grid-area: 3 / 2; margin-top: 26px; }
+
+@media (max-width: 900px) {
+  .halo-home .hero {
+    min-height: 0;
+    grid-template-rows: minmax(620px, 72svh) auto;
+    align-items: stretch;
+  }
+  .halo-home .hero .hero-image img { object-position: 50% 24%; }
+  .halo-home .hero .hero-copy {
+    width: 100%;
+    margin: 0;
+    padding: 62px var(--halo-gutter);
+    align-self: auto;
+    display: flex;
+    border: 0;
+    border-radius: 0;
+  }
+  .halo-home .hero h1 { font-size: clamp(4rem, 12vw, 6.5rem); }
+}
+
+@media (max-width: 620px) {
+  .halo-home .hero { grid-template-rows: minmax(570px, 70svh) auto; }
+  .halo-home .hero .hero-image img { object-position: 50% 23%; }
+  .halo-home .hero .hero-copy { padding: 54px 24px 48px; }
+  .halo-home .hero h1 { font-size: clamp(3.5rem, 17vw, 5rem); }
+}
