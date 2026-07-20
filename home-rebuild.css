@@ -5,16 +5,17 @@
  */
 
 :root {
+  --halo-blue: #c9e7f7;
   --cloud-white: #fdfcfb;
-  --soft-ivory: #f7f3ee;
+  --soft-ivory: #edf8fe;
   --blush-pink: #f3d9dd;
   --lilac: #e4dcf0;
-  --pale-gold: #ead9b8;
+  --pale-gold: var(--halo-blue);
   --ink: #2b2730;
   --ink-muted: #6b6570;
   --halo-line: rgba(43, 39, 48, 0.12);
   --halo-glass: rgba(255, 255, 255, 0.58);
-  --halo-iridescent: linear-gradient(120deg, #f3d9dd 0%, #e4dcf0 35%, #ead9b8 70%, #f3d9dd 100%);
+  --halo-iridescent: linear-gradient(120deg, #f3d9dd 0%, #e4dcf0 35%, var(--halo-blue) 70%, #f3d9dd 100%);
   --halo-shadow: 0 8px 30px rgba(43, 39, 48, 0.08);
   --halo-shadow-raised: 0 20px 60px rgba(43, 39, 48, 0.12);
   --halo-serif: "Cormorant Garamond", "Iowan Old Style", "Baskerville", Georgia, serif;
@@ -711,3 +712,108 @@
   .halo-home .halo-glass,
   .halo-home .newsletter { background: rgba(255,255,255,.88); border-color: rgba(43,39,48,.32); }
 }
+
+/* Cloud-sky shopping journey: collection through checkout. */
+.halo-home {
+  --halo-blue: #c9e7f7;
+  --sky-blue: var(--halo-blue);
+  --sky-blue-light: #edf8fe;
+  --sky-blue-deep: #9fd1ec;
+  --sky-ink: #243e52;
+  --clay: var(--halo-blue);
+  --cream: var(--sky-blue-light);
+}
+
+.halo-home .shop-section,
+.halo-home .editorial-copy,
+.halo-home .values-section,
+.halo-home .newsletter-wrap {
+  background:
+    radial-gradient(ellipse at 12% 18%, rgba(255,255,255,.92) 0 9%, rgba(255,255,255,.48) 20%, transparent 38%),
+    radial-gradient(ellipse at 88% 72%, rgba(255,255,255,.78) 0 8%, rgba(255,255,255,.34) 22%, transparent 40%),
+    linear-gradient(155deg, var(--sky-blue-light) 0%, var(--sky-blue) 48%, #dceff9 100%);
+}
+
+.halo-home .shop-section { position: relative; color: var(--sky-ink); }
+.halo-home .shop-section .eyebrow,
+.halo-home .shop-section .product-meta p,
+.halo-home .shop-section .filter { color: rgba(36,62,82,.7); }
+.halo-home .shop-section .filter.active { border-color: var(--sky-ink); color: var(--sky-ink); }
+.halo-home .shop-section .product-image {
+  border: 1px solid rgba(255,255,255,.72);
+  background: rgba(255,255,255,.4);
+  box-shadow: 0 18px 46px rgba(59,112,145,.1);
+}
+.halo-home .shop-section .product-meta h3,
+.halo-home .shop-section .product-price { color: var(--sky-ink); }
+.halo-home .shop-section .quick-add { background: rgba(241,250,255,.82); color: var(--sky-ink); }
+
+.halo-home .editorial-section,
+.halo-home .ritual-section { background: var(--sky-blue); }
+.halo-home .editorial-copy,
+.halo-home .ritual-copy { color: var(--sky-ink); }
+.halo-home .editorial-copy h2,
+.halo-home .ritual-copy h2,
+.halo-home .editorial-copy h2 em,
+.halo-home .ritual-copy h2 em,
+.halo-home .ingredient-notes b { color: var(--sky-ink); }
+.halo-home .editorial-copy > p:not(.eyebrow),
+.halo-home .ritual-copy > p:not(.eyebrow),
+.halo-home .ingredient-notes { color: rgba(36,62,82,.72); }
+
+.halo-home .values-section { color: var(--sky-ink); }
+.halo-home .values-section blockquote { color: var(--sky-ink); }
+.halo-home .newsletter-wrap { background-color: var(--sky-blue); }
+.halo-home .newsletter {
+  border-color: rgba(255,255,255,.8);
+  background: rgba(241,250,255,.58);
+  box-shadow: 0 24px 70px rgba(59,112,145,.14);
+}
+
+.halo-home footer { background: #294b64; }
+.halo-home footer,
+.halo-home footer a { color: rgba(242,250,255,.88); }
+
+.halo-home .cart-drawer,
+.halo-home .menu-drawer,
+.halo-home .search-panel {
+  border-color: rgba(255,255,255,.72);
+  background:
+    radial-gradient(ellipse at 15% 12%, rgba(255,255,255,.88), transparent 34%),
+    radial-gradient(ellipse at 90% 82%, rgba(255,255,255,.55), transparent 38%),
+    rgba(207,235,248,.92);
+  color: var(--sky-ink);
+}
+.halo-home .cart-footer { background: rgba(255,255,255,.34); }
+.halo-home .cart-footer .checkout { background: linear-gradient(120deg, #f8fcff, #c5e9fa 52%, #e4dcf0); }
+
+.halo-home .checkout-modal {
+  background:
+    radial-gradient(ellipse at 4% 8%, rgba(255,255,255,.9), transparent 33%),
+    linear-gradient(145deg, var(--sky-blue-light), var(--sky-blue));
+  color: var(--sky-ink);
+}
+.halo-home .checkout-modal::backdrop { background: rgba(29,55,74,.68); backdrop-filter: blur(5px); }
+.halo-home .checkout-main { background: rgba(237,248,254,.5); }
+.halo-home .checkout-summary {
+  background:
+    radial-gradient(ellipse at 82% 10%, rgba(255,255,255,.75), transparent 35%),
+    linear-gradient(165deg, #dff2fc, #b9dff2);
+}
+.halo-home .checkout-main input,
+.halo-home .checkout-main select {
+  border-color: rgba(36,62,82,.22);
+  border-radius: 8px;
+  background: rgba(255,255,255,.72);
+  color: var(--sky-ink);
+}
+.halo-home .delivery-option {
+  border-color: rgba(36,62,82,.34);
+  border-radius: 12px;
+  background: rgba(255,255,255,.42);
+}
+.halo-home .delivery-option:has(input:checked) {
+  background: rgba(255,255,255,.82);
+  box-shadow: inset 0 0 0 1px var(--sky-ink), 0 10px 28px rgba(59,112,145,.1);
+}
+.halo-home .pay-button { border-radius: 999px; background: var(--sky-ink); color: #fff; }
