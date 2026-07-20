@@ -86,7 +86,7 @@ function productCard(product) {
         ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.alt || product.title)}" loading="lazy">`
         : `<div class="product-bottle" data-number="${escapeHtml(product.number)}" aria-label="${escapeHtml(product.title)}">HALO</div>`}
       <button class="quick-add" type="button" data-add="${escapeHtml(product.variantId)}" ${soldOut ? 'disabled' : ''} aria-label="${soldOut ? `${escapeHtml(product.title)} is sold out` : `Add ${escapeHtml(product.title)} to bag`}">
-        ${soldOut ? 'Sold out' : `Quick add — ${money(product.price)}`}
+        ${soldOut ? 'Sold out' : `Quick add ${money(product.price)}`}
       </button>
     </div>
     <div class="product-meta">
@@ -405,7 +405,7 @@ function bindInteractions() {
     if (!code) return;
     if (code === 'HALO10') {
       appliedDiscount = code;
-      toast('HALO10 applied — 10% off');
+      toast('HALO10 applied: 10% off');
     } else toast('That discount code is not recognised');
   });
 
@@ -422,7 +422,7 @@ function bindInteractions() {
     event.preventDefault();
     const method = selectedDeliveryMethod();
     const delivery = window.HaloDelivery?.METHODS?.[method];
-    if (delivery) toast(`${delivery.label} selected — continue with secure payment`);
+    if (delivery) toast(`${delivery.label} selected. Continue with secure payment`);
   });
   $('[data-checkout-close]')?.addEventListener('click', () => $('#checkout-modal')?.close());
 
