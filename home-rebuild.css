@@ -1096,6 +1096,7 @@
   margin: 0;
   padding: 0;
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   border: 0;
@@ -1140,4 +1141,43 @@
   .halo-home .hero .hero-image img { object-position: 50% 26%; }
   .halo-home .hero .hero-cta-only { bottom: 30px; padding: 0; }
   .halo-home .hero .hero-cta-only .iridescent-button { min-width: 188px; min-height: 56px; }
+}
+
+/* Preserve the complete portrait at its natural sharpness. */
+.halo-home .hero {
+  min-height: 700px;
+  height: min(100svh, 900px);
+  max-height: 900px;
+  background: linear-gradient(90deg, #0d2438 0%, #173a55 24%, #173a55 76%, #0d2438 100%);
+}
+.halo-home .hero .hero-image {
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+.halo-home .hero .hero-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  filter: none;
+  transform: none;
+  image-rendering: auto;
+}
+
+@media (min-width: 1000px) {
+  .halo-home .hero .hero-cta-only {
+    padding-right: clamp(42px, 7vw, 110px);
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 620px) {
+  .halo-home .hero {
+    min-height: 800px;
+    height: min(100svh, 860px);
+    background: #10283d;
+  }
+  .halo-home .hero .hero-image { place-items: start center; }
+  .halo-home .hero .hero-image img { object-position: center top; }
 }
