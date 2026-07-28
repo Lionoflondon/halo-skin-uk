@@ -14,7 +14,23 @@ Then open `http://localhost:4173`.
 
 ## Commerce behaviour
 
-Products, filtering, search, persistent cart, quantities, discount entry, free-delivery progress and a multi-section checkout experience all run locally. Product data lives in `app.js`, making it straightforward to replace with a database or another commerce service later.
+Products, filtering, search, persistent cart, quantities, discount entry, free-delivery progress and a multi-section checkout experience run directly in Halo. Published product data is loaded from the managed Firebase catalogue, with the original records in `app.js` retained as a resilient fallback.
+
+## Halo Admin catalogue
+
+Open `/admin` to manage products without editing code. The Products section supports:
+
+- adding and editing products;
+- image uploads or image URLs;
+- prices, categories, badges and storefront order;
+- published/draft status;
+- available/sold-out status;
+- deleting products;
+- importing the four current storefront products into Firestore.
+
+The storefront reads published products from the Firebase `products` collection and safely falls back to its built-in catalogue while the managed collection is empty or unavailable.
+
+Admin writes are protected by `firestore.rules` and restricted to the verified Halo administrator email. Before first use, a Firebase project owner must enable **Google** under Authentication → Sign-in method. Then sign in at `/admin` and choose **Import current products** once.
 
 ## Delivery methods
 

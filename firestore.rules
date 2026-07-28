@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isHaloAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'ayojason600@gmail.com';
+    }
+
+    match /products/{productId} {
+      allow read: if resource.data.published == true || isHaloAdmin();
+      allow create, update, delete: if isHaloAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

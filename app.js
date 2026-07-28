@@ -98,9 +98,53 @@ function productCard(product) {
   </article>`;
 }
 
-function loadProducts() {
+function normaliseManagedProduct(id, data) {
+  return {
+    id,
+    variantId: data.variantId || `${id}-default`,
+    slug: data.slug || id,
+    title: data.title || 'Halo product',
+    subtitle: data.subtitle || '',
+    type: data.type || 'Treatment',
+    price: Number(data.price) || 0,
+    badge: data.badge || '',
+    number: data.number || '',
+    image: data.image || '',
+    alt: data.alt || data.title || 'Halo product',
+    available: data.available !== false,
+    published: data.published === true,
+    sortOrder: Number(data.sortOrder) || 0
+  };
+}
+
+async function loadProducts() {
   products = demoProducts;
   renderProducts(activeFilter);
+
+  const firebaseConfig = window.HALO_FIREBASE_CONFIG;
+  if (!firebaseConfig?.projectId) return;
+
+  try {
+    const [{ initializeApp, getApps }, { collection, getDocs, getFirestore, query, where }] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js')
+    ]);
+    const firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+    const database = getFirestore(firebaseApp);
+    const catalogueQuery = query(collection(database, 'products'), where('published', '==', true));
+    const snapshot = await getDocs(catalogueQuery);
+    const managedProducts = snapshot.docs
+      .map(document => normaliseManagedProduct(document.id, document.data()))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+
+    if (managedProducts.length) {
+      products = managedProducts;
+      renderProducts(activeFilter);
+      renderCart();
+    }
+  } catch (error) {
+    console.info('Halo managed catalogue is unavailable; using the built-in catalogue.', error?.code || error?.message || error);
+  }
 }
 
 function renderProducts(filter = 'all') {

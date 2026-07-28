@@ -1,1 +1,118 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Halo Admin — Deliveries</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Italiana&display=swap"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="logo.css"></head><body><header><a class="brand-logo" href="index.html" aria-label="Halo storefront"><img src="assets/halo-logo.jpg" alt="Halo"></a><span>Admin</span></header><main><div class="heading"><div><p>FULFILMENT</p><h1>Halo deliveries</h1></div><button id="refresh">Refresh</button></div><div class="notice" id="admin-notice">Connect the Halo orders endpoint in delivery-config.js to display live orders.</div><div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Delivery method</th><th>Circum Delivery ID</th><th>Current status</th><th>Tracking</th></tr></thead><tbody id="orders"><tr><td colspan="6" class="empty">No delivery data loaded.</td></tr></tbody></table></div></main><script src="delivery-config.js"></script><script src="admin.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Halo Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Italiana&display=swap">
+    <link rel="stylesheet" href="admin.css?v=2">
+    <link rel="stylesheet" href="logo.css?v=5">
+  </head>
+  <body>
+    <header class="admin-header">
+      <a class="brand-logo" href="index.html" aria-label="Halo storefront"><img src="assets/halo-logo.jpg" alt="Halo"></a>
+      <div class="admin-account">
+        <span id="admin-user">Admin</span>
+        <button class="text-button" id="sign-out" type="button" hidden>Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="login-panel" id="login-panel">
+        <p class="eyebrow">HALO ADMIN</p>
+        <h1>Manage the<br><em>Halo collection.</em></h1>
+        <p>Sign in with the verified Halo administrator account to add products, update prices and control availability.</p>
+        <button class="primary-button" id="google-sign-in" type="button">Continue with Google</button>
+        <p class="form-message" id="login-message" role="status"></p>
+      </section>
+
+      <section class="admin-app" id="admin-app" hidden>
+        <div class="admin-heading">
+          <div><p class="eyebrow">HALO CONTROL ROOM</p><h1>Store management</h1></div>
+          <a class="store-link" href="index.html#shop" target="_blank" rel="noopener">View storefront ↗</a>
+        </div>
+
+        <nav class="admin-tabs" aria-label="Admin sections">
+          <button class="admin-tab active" type="button" data-admin-tab="products">Products</button>
+          <button class="admin-tab" type="button" data-admin-tab="deliveries">Deliveries</button>
+        </nav>
+
+        <section class="admin-section active" data-admin-panel="products">
+          <div class="product-admin-grid">
+            <form class="product-form" id="product-form">
+              <div class="panel-heading">
+                <div><p class="eyebrow">CATALOGUE</p><h2 id="product-form-title">Add product</h2></div>
+                <button class="text-button" id="reset-product" type="button">Clear</button>
+              </div>
+
+              <input id="product-id" type="hidden">
+              <div class="field-row">
+                <label>Product name<input id="product-title" name="title" required placeholder="Peptide Lip Tint"></label>
+                <label>Subtitle<input id="product-subtitle" name="subtitle" required placeholder="Pink veil"></label>
+              </div>
+              <div class="field-row three">
+                <label>Category<select id="product-type" name="type"><option>Treatment</option><option>Tint</option><option>Set</option></select></label>
+                <label>Price (£)<input id="product-price" name="price" required type="number" min="0" step="0.01" placeholder="18.00"></label>
+                <label>Order<input id="product-sort" name="sortOrder" type="number" min="0" step="1" value="0"></label>
+              </div>
+              <div class="field-row three">
+                <label>Badge<input id="product-badge" name="badge" placeholder="New"></label>
+                <label>Display number<input id="product-number" name="number" placeholder="05"></label>
+                <label>Slug<input id="product-slug" name="slug" placeholder="peptide-lip-tint"></label>
+              </div>
+
+              <fieldset class="image-fields">
+                <legend>Product image</legend>
+                <div class="image-preview" id="image-preview"><span>No image</span></div>
+                <div class="image-inputs">
+                  <label>Upload image<input id="product-image-file" type="file" accept="image/jpeg,image/png,image/webp"></label>
+                  <span>or</span>
+                  <label>Image URL<input id="product-image-url" name="image" placeholder="assets/product.webp or https://…"></label>
+                  <small>Uploads are resized and stored with the product. Maximum source size: 10MB.</small>
+                </div>
+              </fieldset>
+
+              <label>Image description<input id="product-alt" name="alt" required placeholder="Halo pink peptide lip tint"></label>
+              <div class="switch-row">
+                <label><input id="product-available" type="checkbox" checked> Available to purchase</label>
+                <label><input id="product-published" type="checkbox" checked> Published on storefront</label>
+              </div>
+              <button class="primary-button" id="save-product" type="submit">Save product</button>
+              <p class="form-message" id="product-message" role="status"></p>
+            </form>
+
+            <div class="catalogue-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">LIVE CATALOGUE</p><h2>Products</h2></div>
+                <button class="secondary-button" id="import-products" type="button">Import current products</button>
+              </div>
+              <p class="catalogue-summary" id="catalogue-summary">Loading catalogue…</p>
+              <div class="product-list" id="admin-products"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-section" data-admin-panel="deliveries">
+          <div class="panel-heading deliveries-heading">
+            <div><p class="eyebrow">FULFILMENT</p><h2>Halo deliveries</h2></div>
+            <button class="secondary-button" id="refresh" type="button">Refresh</button>
+          </div>
+          <div class="notice" id="admin-notice">Connect the Halo orders endpoint in delivery-config.js to display live orders.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Order</th><th>Customer</th><th>Delivery method</th><th>Circum Delivery ID</th><th>Current status</th><th>Tracking</th></tr></thead>
+              <tbody id="orders"><tr><td colspan="6" class="empty">No delivery data loaded.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="firebase-config.js"></script>
+    <script src="delivery-config.js"></script>
+    <script type="module" src="admin.js?v=2"></script>
+  </body>
+</html>
