@@ -53,5 +53,14 @@
         ]
       }
     ]
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Halo",
+        "supportEmail": "ayojason600@gmail.com"
+      }
+    }
   }
 }

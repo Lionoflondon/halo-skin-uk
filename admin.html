@@ -25,7 +25,14 @@
         <p class="eyebrow">HALO ADMIN</p>
         <h1>Manage the<br><em>Halo collection.</em></h1>
         <p>Sign in with the verified Halo administrator account to add products, update prices and control availability.</p>
-        <button class="primary-button" id="google-sign-in" type="button">Continue with Google</button>
+        <form class="auth-form" id="email-sign-in-form">
+          <label>Email address<input id="admin-email" type="email" autocomplete="username" value="ayojason600@gmail.com" required></label>
+          <label>Password<input id="admin-password" type="password" autocomplete="current-password" required></label>
+          <button class="primary-button" id="email-sign-in" type="submit">Sign in</button>
+        </form>
+        <button class="password-reset-button" id="password-reset" type="button">Create or reset password</button>
+        <div class="auth-divider"><span>or</span></div>
+        <button class="secondary-button google-sign-in" id="google-sign-in" type="button">Continue with Google</button>
         <p class="form-message" id="login-message" role="status"></p>
       </section>
 
@@ -113,6 +120,6 @@
 
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
-    <script type="module" src="admin.js?v=2"></script>
+    <script type="module" src="admin.js?v=3"></script>
   </body>
 </html>

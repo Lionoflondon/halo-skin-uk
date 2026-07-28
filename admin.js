@@ -1,8 +1,12 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {
+  browserLocalPersistence,
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  setPersistence,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
@@ -22,6 +26,7 @@ const allowedAdminEmails = window.HALO_ADMIN_EMAILS || [];
 const deliveryConfig = window.HALO_DELIVERY_CONFIG || {};
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
+await setPersistence(auth, browserLocalPersistence);
 const database = getFirestore(firebaseApp);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
@@ -297,10 +302,49 @@ $('#google-sign-in').addEventListener('click', async () => {
     message(
       $('#login-message'),
       needsSetup
-        ? 'Google sign-in must be enabled once by the Firebase project owner before Halo Admin can be used.'
+        ? 'Google sign-in is not available. Use your Halo admin email and password.'
         : (error.message || 'Sign-in was not completed.'),
       'error'
     );
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('#email-sign-in-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = $('#email-sign-in');
+  const email = $('#admin-email').value.trim().toLowerCase();
+  const password = $('#admin-password').value;
+  button.disabled = true;
+  message($('#login-message'), 'Signing in securely…');
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+    $('#admin-password').value = '';
+  } catch (error) {
+    const friendlyMessage = error.code === 'auth/too-many-requests'
+      ? 'Too many attempts. Wait a moment or reset your password.'
+      : 'The email or password was not recognised.';
+    message($('#login-message'), friendlyMessage, 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('#password-reset').addEventListener('click', async () => {
+  const button = $('#password-reset');
+  const email = $('#admin-email').value.trim().toLowerCase();
+  if (!allowedAdminEmails.includes(email)) {
+    message($('#login-message'), 'Enter the authorised Halo administrator email first.', 'error');
+    return;
+  }
+  button.disabled = true;
+  message($('#login-message'), 'Sending a secure password setup email…');
+  try {
+    await sendPasswordResetEmail(auth, email);
+    message($('#login-message'), 'Password email sent. Follow the secure link in your inbox, then return here to sign in.', 'success');
+  } catch (error) {
+    message($('#login-message'), 'The password email could not be sent. Use Google sign-in or try again shortly.', 'error');
   } finally {
     button.disabled = false;
   }
