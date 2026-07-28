@@ -45,6 +45,7 @@
         <nav class="admin-tabs" aria-label="Admin sections">
           <button class="admin-tab active" type="button" data-admin-tab="products">Products</button>
           <button class="admin-tab" type="button" data-admin-tab="deliveries">Deliveries</button>
+          <button class="admin-tab" type="button" data-admin-tab="account">Account</button>
         </nav>
 
         <section class="admin-section active" data-admin-panel="products">
@@ -115,11 +116,25 @@
             </table>
           </div>
         </section>
+
+        <section class="admin-section account-section" data-admin-panel="account">
+          <div class="panel-heading">
+            <div><p class="eyebrow">SECURITY</p><h2>Admin password</h2></div>
+          </div>
+          <p class="account-intro">Set or change the password for <strong id="account-email">your Halo admin account</strong>. Your password is sent directly to Firebase and is never stored in the storefront.</p>
+          <form class="password-form" id="password-form">
+            <label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="12" required></label>
+            <label>Confirm new password<input id="confirm-password" type="password" autocomplete="new-password" minlength="12" required></label>
+            <small>Use at least 12 characters with uppercase, lowercase, a number and a symbol.</small>
+            <button class="primary-button" id="save-password" type="submit">Set new password</button>
+            <p class="form-message" id="password-message" role="status"></p>
+          </form>
+        </section>
       </section>
     </main>
 
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
-    <script type="module" src="admin.js?v=3"></script>
+    <script type="module" src="admin.js?v=4"></script>
   </body>
 </html>

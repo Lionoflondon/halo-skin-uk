@@ -30,7 +30,7 @@ Open `/admin` to manage products without editing code. The Products section supp
 
 The storefront reads published products from the Firebase `products` collection and safely falls back to its built-in catalogue while the managed collection is empty or unavailable.
 
-Admin writes are protected by `firestore.rules` and restricted to the verified Halo administrator email. Email/password and Google authentication are enabled. Use **Create or reset password** once to set the administrator password, then sign in at `/admin`. Google sign-in remains available as a recovery option.
+Admin writes are protected by `firestore.rules` and restricted to the verified Halo administrator email. Email/password and Google authentication are enabled. To create or change the password without email delivery, sign in with Google, open **Account**, and set the password directly. Google sign-in remains available as a recovery option.
 
 ## Delivery methods
 

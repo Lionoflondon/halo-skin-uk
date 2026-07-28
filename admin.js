@@ -1,14 +1,17 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {
   browserLocalPersistence,
+  EmailAuthProvider,
   getAuth,
   GoogleAuthProvider,
+  linkWithCredential,
   onAuthStateChanged,
   sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signOut
+  signOut,
+  updatePassword
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import {
   collection,
@@ -279,6 +282,7 @@ onAuthStateChanged(auth, async user => {
   $('#sign-out').hidden = !allowed;
   $('#admin-user').textContent = allowed ? user.email : 'Admin';
   if (allowed) {
+    $('#account-email').textContent = user.email;
     message($('#login-message'), '');
     watchProducts();
     loadOrders();
@@ -288,6 +292,52 @@ onAuthStateChanged(auth, async user => {
   if (user) {
     message($('#login-message'), 'This Google account is not authorised for Halo Admin.', 'error');
     await signOut(auth);
+  }
+});
+
+$('#password-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const password = $('#new-password').value;
+  const confirmation = $('#confirm-password').value;
+  const button = $('#save-password');
+  const passwordMessage = $('#password-message');
+
+  if (!isAllowedAdmin(user)) {
+    message(passwordMessage, 'Sign in with the authorised Halo administrator account first.', 'error');
+    return;
+  }
+  if (password !== confirmation) {
+    message(passwordMessage, 'The two passwords do not match.', 'error');
+    return;
+  }
+  if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}/.test(password)) {
+    message(passwordMessage, 'Use at least 12 characters with uppercase, lowercase, a number and a symbol.', 'error');
+    return;
+  }
+
+  button.disabled = true;
+  message(passwordMessage, 'Securing your new password…');
+  try {
+    const hasPasswordProvider = user.providerData.some(providerData => providerData.providerId === 'password');
+    if (hasPasswordProvider) {
+      await updatePassword(user, password);
+    } else {
+      await linkWithCredential(user, EmailAuthProvider.credential(user.email, password));
+    }
+    event.currentTarget.reset();
+    message(passwordMessage, 'Password saved. You can now sign in with email and password.', 'success');
+  } catch (error) {
+    const needsRecentLogin = error.code === 'auth/requires-recent-login';
+    message(
+      passwordMessage,
+      needsRecentLogin
+        ? 'For security, sign out and sign in with Google again, then set the password immediately.'
+        : (error.message || 'The password could not be changed.'),
+      'error'
+    );
+  } finally {
+    button.disabled = false;
   }
 });
 

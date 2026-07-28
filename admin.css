@@ -186,6 +186,13 @@ th { color: var(--muted); font-size: 9px; letter-spacing: .1em; text-transform: 
 .empty { padding: 50px; color: var(--muted); text-align: center; }
 td a { color: inherit; }
 
+.account-section { max-width: 720px; }
+.account-intro { max-width: 590px; margin: -8px 0 28px; color: var(--muted); line-height: 1.7; }
+.password-form { display: grid; gap: 16px; max-width: 520px; }
+.password-form label { display: grid; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.password-form small { color: var(--muted); line-height: 1.5; }
+.password-form .primary-button { width: 100%; margin-top: 6px; }
+
 @media (max-width: 1000px) {
   .product-admin-grid { grid-template-columns: 1fr; }
 }
