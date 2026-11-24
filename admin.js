@@ -255,6 +255,16 @@ function watchProducts() {
   });
 }
 
+function orderActions(order) {
+  const actions = [];
+  const paid = order.paymentStatus === 'paid' || order.paymentStatus === 'partially_refunded';
+  if (order.status === 'paid' && order.paymentStatus === 'paid') actions.push('processing');
+  if (order.status === 'processing' && paid) actions.push('dispatched');
+  if (order.status === 'dispatched') actions.push('delivered');
+  if (['abandoned', 'refunded'].includes(order.paymentStatus) && ['pending_payment', 'paid', 'processing'].includes(order.status)) actions.push('cancelled');
+  return `${actions.length ? `<button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>` : ''}${paid && !['cancelled', 'pending_payment'].includes(order.status) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}">Refund</button>` : ''}`;
+}
+
 function renderOrderHistory(history = []) {
   if (!history.length) return '';
   const rows = history.map(item => {
@@ -293,8 +303,7 @@ async function loadOrders() {
       <td>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener">Track ↗</a><br>` : ''}
         ${renderShippingDetails(order.shippingDetails)}
         ${renderOrderHistory(order.statusHistory)}
-        <button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>
-        ${['paid', 'partially_refunded'].includes(order.paymentStatus) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}">Refund</button>` : ''}</td>
+        ${orderActions(order)}</td>
     </tr>`).join('') : '<tr><td colspan="6" class="empty">No orders found.</td></tr>';
     notice.textContent = `${orders.length} Halo order${orders.length === 1 ? '' : 's'} loaded.`;
   } catch (_) {
