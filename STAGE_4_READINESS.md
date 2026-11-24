@@ -2,9 +2,9 @@
 
 ## Latest source verification — 24 November 2026
 
-- Source branch: `codex/halo-stage4`, commit `5ab59816e959f1d0e9fa0f5a22480908f7b2fc4a`.
-- GitHub Actions `HALO checks` for that commit completed successfully: [run 45395207770](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45395207770).
-- The local suite passes 20 tests: 4 fulfilment tests and 16 payment, order and customer-history tests. These are code-level checks, not hosted payment or authentication acceptance.
+- Source branch: `codex/halo-stage4`, commit `80bf1ceae143dd70bd3aa467ea22f9abddde7bbb`.
+- GitHub Actions `HALO checks` for that commit completed successfully: [run 45396917313](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45396917313).
+- The local suite passes 22 tests: 4 fulfilment tests and 18 payment, order, customer-history and App Check tests. These are code-level checks, not hosted payment or authentication acceptance.
 - Rothcross owns one Stripe account used across CORPVS CHRISTI, HALO and its other brands. HALO checkout stores `halo` brand/store metadata, and refund processing now resolves the order from the matching PaymentIntent metadata instead of relying on charge metadata being copied. The webhook still rejects live-mode events and records only HALO orders in HALO's own `haloOrders` collection.
 - Customer account source now supports email/password registration, email verification, password reset, account-linked checkout and private order history. Customer order responses omit shipping addresses, email addresses and payment identifiers. Hosted Firebase Auth, sign-in, checkout linking and order-history behavior are not yet verified. Guest orders placed before a customer signs in cannot be linked to an account by this implementation.
 - Firebase App Check is now verified server-side for checkout, checkout-status, customer-history, and administrator order/refund actions. The storefront obtains fresh reCAPTCHA v3 App Check tokens and sends the signed-in authorization header through the checkout preflight policy. New unit checks cover valid, missing and invalid App Check tokens. Hosted acceptance remains blocked until the HALO staging reCAPTCHA v3 app/site key is registered for the staging hosts, added as GitHub environment variable `HALO_FIREBASE_APPCHECK_SITE_KEY`, and App Check enforcement is enabled for the relevant Firebase services.
