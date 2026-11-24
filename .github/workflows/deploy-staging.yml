@@ -88,8 +88,27 @@ jobs:
           test -n "$STRIPE_SECRET_KEY"
           test -n "$STRIPE_WEBHOOK_SECRET"
           case "$STRIPE_SECRET_KEY" in sk_test_*|rk_test_*) ;; *) echo "HALO requires a Stripe test-mode key" >&2; exit 1;; esac
-          printf %s "$STRIPE_SECRET_KEY" | gcloud secrets create STRIPE_SECRET_KEY --project "$PROJECT_ID" --data-file=- --replication-policy=automatic 2>/dev/null || printf %s "$STRIPE_SECRET_KEY" | gcloud secrets versions add STRIPE_SECRET_KEY --project "$PROJECT_ID" --data-file=-
-          printf %s "$STRIPE_WEBHOOK_SECRET" | gcloud secrets create STRIPE_WEBHOOK_SECRET --project "$PROJECT_ID" --data-file=- --replication-policy=automatic 2>/dev/null || printf %s "$STRIPE_WEBHOOK_SECRET" | gcloud secrets versions add STRIPE_WEBHOOK_SECRET --project "$PROJECT_ID" --data-file=-
+          write_london_secret() {
+            local name="$1"
+            local value="$2"
+            local exists="false"
+            if gcloud secrets describe "$name" --project "$PROJECT_ID" >/dev/null 2>&1; then
+              exists="true"
+              local locations
+              locations="$(gcloud secrets describe "$name" --project "$PROJECT_ID" --format='value(replication.userManaged.replicas.location)' | tr '\n' ',')"
+              if [[ "$locations" != "europe-west2," ]]; then
+                echo "$name exists without the required London-only replication policy; refusing to add another version." >&2
+                return 1
+              fi
+            fi
+            if [[ "$exists" == "false" ]]; then
+              printf %s "$value" | gcloud secrets create "$name" --project "$PROJECT_ID" --data-file=- --replication-policy=user-managed --locations=europe-west2
+            else
+              printf %s "$value" | gcloud secrets versions add "$name" --project "$PROJECT_ID" --data-file=-
+            fi
+          }
+          write_london_secret STRIPE_SECRET_KEY "$STRIPE_SECRET_KEY"
+          write_london_secret STRIPE_WEBHOOK_SECRET "$STRIPE_WEBHOOK_SECRET"
       - name: Deploy only to the configured HALO staging project
         env:
           PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
