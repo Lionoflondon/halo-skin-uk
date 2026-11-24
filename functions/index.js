@@ -2,6 +2,7 @@
 
 const { createHash } = require('node:crypto');
 const { getAuth } = require('firebase-admin/auth');
+const { getAppCheck } = require('firebase-admin/app-check');
 const { initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { defineSecret, defineString } = require('firebase-functions/params');
@@ -10,6 +11,7 @@ const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
 const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
+const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 
 initializeApp();
 const db = getFirestore();
@@ -23,7 +25,12 @@ const HALO_ADMIN_EMAIL = 'ayojason600@gmail.com';
 
 class AdminAccessError extends Error {}
 
+async function requireAppCheck(request) {
+  await requireVerifiedAppCheck(request, token => getAppCheck().verifyToken(token));
+}
+
 async function requireHaloAdmin(request) {
+  await requireAppCheck(request);
   const match = /^Bearer (.+)$/.exec(request.get('authorization') || '');
   if (!match) throw new AdminAccessError('Sign in to Halo Admin.');
   const token = await getAuth().verifyIdToken(match[1], true);
@@ -53,8 +60,8 @@ function setCors(request, response) {
   const allowed = allowedOrigins.value().split(',').map(value => value.trim()).filter(Boolean);
   if (origin && allowed.includes(origin)) {
     response.set('Access-Control-Allow-Origin', origin).set('Vary', 'Origin');
-    response.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    response.set('Access-Control-Allow-Headers', 'Content-Type, Idempotency-Key');
+    response.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    response.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, Idempotency-Key, X-Firebase-AppCheck');
   }
   return Boolean(origin && allowed.includes(origin));
 }
@@ -65,6 +72,7 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to begin checkout.');
   let orderRef;
   try {
+    await requireAppCheck(request);
     const requestKey = request.get('idempotency-key') || '';
     if (requestKey.length < 16 || requestKey.length > 128) return sendError(response, 400, 'idempotency_key_required', 'Refresh checkout and try again.');
     const email = String(request.body?.email || '').trim().toLowerCase();
@@ -129,7 +137,7 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
     response.set('Cache-Control', 'no-store').status(200).json({ url: session.url, orderId });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    sendError(response, /basket|item|price|email|delivery|checkout key|allowed limit/i.test(message) ? 422 : 503,
+    sendError(response, error instanceof AppCheckAccessError ? 403 : /basket|item|price|email|delivery|checkout key|allowed limit/i.test(message) ? 422 : 503,
       'checkout_unavailable', message || 'Secure checkout is temporarily unavailable.');
   }
 });
@@ -139,6 +147,11 @@ exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 
   const bearer = /^Bearer (.+)$/.exec(request.get('authorization') || '');
   if (!bearer) return sendError(response, 401, 'sign_in_required', 'Sign in to view your HALO orders.');
   let identity;
+  try {
+    await requireAppCheck(request);
+  } catch (error) {
+    return sendError(response, 403, 'app_check_required', error.message);
+  }
   try {
     identity = await getAuth().verifyIdToken(bearer[1], true);
   } catch (_) {
@@ -179,7 +192,7 @@ exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, 
     }));
     response.set('Cache-Control', 'no-store').status(200).json({ orders });
   } catch (error) {
-    sendError(response, error instanceof AdminAccessError ? 403 : 503, 'admin_orders_unavailable', error.message || 'HALO orders could not be loaded.');
+    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 503, 'admin_orders_unavailable', error.message || 'HALO orders could not be loaded.');
   }
 });
 
@@ -214,7 +227,7 @@ exports.updateHaloOrder = onRequest({ region, invoker: 'public', maxInstances: 3
     });
     response.set('Cache-Control', 'no-store').status(200).json(result);
   } catch (error) {
-    sendError(response, error instanceof AdminAccessError ? 403 : 409, 'order_update_failed', error.message || 'Order could not be updated.');
+    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 409, 'order_update_failed', error.message || 'Order could not be updated.');
   }
 });
 
@@ -243,7 +256,7 @@ exports.requestHaloRefund = onRequest({ region, invoker: 'public', maxInstances:
     }, { idempotencyKey: `halo_refund_${hash(requestKey)}` });
     response.set('Cache-Control', 'no-store').status(200).json({ refundId: refund.id, status: refund.status, amountPence: refund.amount, currency: refund.currency });
   } catch (error) {
-    sendError(response, error instanceof AdminAccessError ? 403 : 503, 'refund_request_failed', error.message || 'Refund could not be requested.');
+    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 503, 'refund_request_failed', error.message || 'Refund could not be requested.');
   }
 });
 
@@ -252,6 +265,7 @@ exports.getCheckoutStatus = onRequest({ region, invoker: 'public', maxInstances:
   if (request.method === 'OPTIONS') return response.status(204).end();
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to check a checkout.');
   try {
+    await requireAppCheck(request);
     const sessionId = String(request.body?.sessionId || '');
     if (!/^cs_test_[A-Za-z0-9_]+$/.test(sessionId)) return sendError(response, 422, 'invalid_session', 'Stripe session reference is not valid.');
     const stripe = stripeClient();

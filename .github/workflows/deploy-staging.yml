@@ -38,6 +38,7 @@ jobs:
           MESSAGING_SENDER_ID: ${{ vars.HALO_FIREBASE_MESSAGING_SENDER_ID }}
           STRIPE_ACCOUNT_ID: ${{ vars.ROTHCROSS_STRIPE_ACCOUNT_ID }}
           APP_ID: ${{ vars.HALO_FIREBASE_APP_ID }}
+          APPCHECK_SITE_KEY: ${{ vars.HALO_FIREBASE_APPCHECK_SITE_KEY }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
@@ -45,7 +46,7 @@ jobs:
           if (!/^acct_[a-zA-Z0-9]+$/.test(stripeAccount || '')) {
             throw new Error('Set the verified shared Rothcross Stripe account ID before deploying.');
           }
-          const required = ['API_KEY', 'AUTH_DOMAIN', 'STORAGE_BUCKET', 'MESSAGING_SENDER_ID', 'APP_ID'];
+          const required = ['API_KEY', 'AUTH_DOMAIN', 'STORAGE_BUCKET', 'MESSAGING_SENDER_ID', 'APP_ID', 'APPCHECK_SITE_KEY'];
           if (required.some(name => !process.env[name])) {
             throw new Error('Complete HALO staging Firebase web configuration before deploying.');
           }
@@ -65,7 +66,8 @@ jobs:
             projectId: process.env.PROJECT_ID,
             storageBucket: process.env.STORAGE_BUCKET,
             messagingSenderId: process.env.MESSAGING_SENDER_ID,
-            appId: process.env.APP_ID
+            appId: process.env.APP_ID,
+            appCheckSiteKey: process.env.APPCHECK_SITE_KEY
           };
           if (Object.values(config).some(value => !value) || config.authDomain !== `${config.projectId}.firebaseapp.com` ||
               !config.appId.startsWith(`1:${config.messagingSenderId}:web:`)) {

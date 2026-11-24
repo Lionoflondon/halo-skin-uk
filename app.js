@@ -81,6 +81,7 @@ let checkoutDiscount = 0;
 let activeFilter = 'all';
 let activeOverlayOpener = null;
 let firebaseAppPromise = null;
+let appCheckPromise = null;
 let customerAuthApiPromise = null;
 let customerAuth = null;
 let customerAuthApi = null;
@@ -96,6 +97,26 @@ async function getHaloFirebaseApp() {
       getApps().length ? getApps()[0] : initializeApp(window.HALO_FIREBASE_CONFIG));
   }
   return firebaseAppPromise;
+}
+
+async function getAppCheckToken() {
+  if (!appCheckPromise) {
+    appCheckPromise = Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-check.js'), getHaloFirebaseApp()
+    ]).then(async ([appCheckApi, app]) => {
+      const siteKey = window.HALO_FIREBASE_CONFIG?.appCheckSiteKey;
+      if (!siteKey) throw new Error('Secure request protection is not configured yet.');
+      const appCheck = appCheckApi.initializeAppCheck(app, {
+        provider: new appCheckApi.ReCaptchaV3Provider(siteKey), isTokenAutoRefreshEnabled: true
+      });
+      return { appCheckApi, appCheck };
+    }).catch(error => {
+      appCheckPromise = null;
+      throw error;
+    });
+  }
+  const { appCheckApi, appCheck } = await appCheckPromise;
+  return (await appCheckApi.getToken(appCheck, false)).token;
 }
 
 async function initializeCustomerAccount() {
@@ -176,7 +197,8 @@ async function loadCustomerOrders() {
     const endpoint = window.HALO_DELIVERY_CONFIG?.customerOrdersEndpoint;
     if (!endpoint) throw new Error('Order history is not available yet.');
     const token = await user.getIdToken();
-    const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    const appCheckToken = await getAppCheckToken();
+    const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}`, 'X-Firebase-AppCheck': appCheckToken }, cache: 'no-store' });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || 'Your orders could not be loaded.');
     if (requestNumber === customerOrdersRequest && customerAuthUser?.uid === user.uid) renderCustomerOrders(result.orders || []);
@@ -600,7 +622,10 @@ function bindInteractions() {
       const storageKey = `halo_checkout_request:${fingerprint}`;
       const requestKey = sessionStorage.getItem(storageKey) || crypto.randomUUID();
       sessionStorage.setItem(storageKey, requestKey);
-      const headers = { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey };
+      const headers = {
+        'Content-Type': 'application/json', 'Idempotency-Key': requestKey,
+        'X-Firebase-AppCheck': await getAppCheckToken()
+      };
       if (linkedCustomer) headers.Authorization = `Bearer ${await linkedCustomer.getIdToken()}`;
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -730,7 +755,7 @@ async function showStripeReturnStatus() {
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Firebase-AppCheck': await getAppCheckToken() },
       body: JSON.stringify({ sessionId })
     });
     const status = await response.json().catch(() => ({}));

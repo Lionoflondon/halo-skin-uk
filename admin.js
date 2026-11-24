@@ -32,6 +32,11 @@ const allowedAdminEmails = window.HALO_ADMIN_EMAILS || [];
 const deliveryConfig = window.HALO_DELIVERY_CONFIG || {};
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
+const appCheckApi = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-check.js');
+const appCheckSiteKey = firebaseConfig?.appCheckSiteKey;
+const appCheck = appCheckSiteKey ? appCheckApi.initializeAppCheck(firebaseApp, {
+  provider: new appCheckApi.ReCaptchaV3Provider(appCheckSiteKey), isTokenAutoRefreshEnabled: true
+}) : null;
 await setPersistence(auth, browserLocalPersistence);
 const database = getFirestore(firebaseApp);
 const provider = new GoogleAuthProvider();
@@ -45,6 +50,14 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character =>
 const money = value => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(Number(value) || 0);
 const slugify = value => String(value || '').toLowerCase().trim()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+async function getProtectedRequestHeaders(user = auth.currentUser, extra = {}) {
+  if (!appCheck) throw new Error('Secure request protection is not configured yet.');
+  const token = await user?.getIdToken(true);
+  if (!token) throw new Error('Sign in again to continue.');
+  const appCheckToken = (await appCheckApi.getToken(appCheck)).token;
+  return { Authorization: `Bearer ${token}`, 'X-Firebase-AppCheck': appCheckToken, ...extra };
+}
 
 const starterProducts = [
   { id: 'lip-peptide-treatment', variantId: 'lip-peptide-treatment-default', slug: 'lip-peptide-treatment', title: 'Lip Peptide Treatment', subtitle: 'Softening clear treatment', type: 'Treatment', price: 18, badge: 'Bestseller', number: '01', image: 'assets/halo-pink-botanical.jpg', alt: 'Halo clear peptide lip treatment among flowers and river stones', available: true, published: true, sortOrder: 1 },
@@ -288,9 +301,8 @@ async function loadOrders() {
   notice.textContent = 'Loading Halo delivery data…';
   try {
     const user = auth.currentUser;
-    const token = await user?.getIdToken(true);
-    if (!token) throw new Error('Sign in again to continue.');
-    const response = await fetch(deliveryConfig.adminOrdersEndpoint, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    const headers = await getProtectedRequestHeaders(user);
+    const response = await fetch(deliveryConfig.adminOrdersEndpoint, { headers, cache: 'no-store' });
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const { orders = [] } = await response.json();
     if (auth.currentUser !== user) return;
@@ -484,8 +496,7 @@ $('#orders').addEventListener('click', async event => {
   const refundButton = event.target.closest('[data-order-refund]');
   const orderId = statusButton?.dataset.orderStatus || refundButton?.dataset.orderRefund;
   if (!orderId) return;
-  const token = await auth.currentUser?.getIdToken(true);
-  if (!token) return message($('#admin-notice'), 'Sign in again to continue.', 'error');
+  if (!auth.currentUser) return message($('#admin-notice'), 'Sign in again to continue.', 'error');
   try {
     if (statusButton) {
       const status = window.prompt('Next status: processing, dispatched, delivered or cancelled');
@@ -493,7 +504,8 @@ $('#orders').addEventListener('click', async event => {
       const reason = window.prompt('Reason for this status change');
       if (!reason) return;
       const trackingUrl = status === 'dispatched' ? window.prompt('Secure tracking URL') : undefined;
-      const response = await fetch('/api/updateHaloOrder', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, status, reason, trackingUrl }) });
+      const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json' });
+      const response = await fetch('/api/updateHaloOrder', { method: 'POST', headers, body: JSON.stringify({ orderId, status, reason, trackingUrl }) });
       if (!response.ok) throw new Error((await response.json()).message || 'Order status could not be changed.');
     } else {
       const amount = window.prompt('Refund amount in pounds (for example 12.50)');
@@ -501,7 +513,8 @@ $('#orders').addEventListener('click', async event => {
       const amountPence = Math.round(Number(amount) * 100);
       const reason = window.prompt('Reason for this refund');
       if (!Number.isSafeInteger(amountPence) || amountPence < 1 || !reason) throw new Error('Enter a positive refund amount and reason.');
-      const response = await fetch('/api/requestHaloRefund', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ orderId, amountPence, reason }) });
+      const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() });
+      const response = await fetch('/api/requestHaloRefund', { method: 'POST', headers, body: JSON.stringify({ orderId, amountPence, reason }) });
       if (!response.ok) throw new Error((await response.json()).message || 'Refund could not be requested.');
     }
     await loadOrders();
