@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "hosting": {
     "public": ".",
@@ -68,6 +69,7 @@
       { "source": "/api/createCheckoutSession", "function": { "functionId": "createCheckoutSession", "region": "europe-west2" } },
       { "source": "/api/stripeWebhook", "function": { "functionId": "stripeWebhook", "region": "europe-west2" } },
       { "source": "/api/getCheckoutStatus", "function": { "functionId": "getCheckoutStatus", "region": "europe-west2" } },
+      { "source": "/api/customerOrders", "function": { "functionId": "customerOrders", "region": "europe-west2" } },
       { "source": "/api/adminOrders", "function": { "functionId": "adminOrders", "region": "europe-west2" } },
       { "source": "/api/updateHaloOrder", "function": { "functionId": "updateHaloOrder", "region": "europe-west2" } },
       { "source": "/api/requestHaloRefund", "function": { "functionId": "requestHaloRefund", "region": "europe-west2" } }

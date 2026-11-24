@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="image-overrides.css" />
-    <link rel="stylesheet" href="checkout.css" />
+    <link rel="stylesheet" href="checkout.css?v=20261124-account" />
     <link rel="stylesheet" href="delivery.css" />
     <link rel="stylesheet" href="home-rebuild.css?v=15" />
     <link rel="stylesheet" href="logo.css?v=5" />
@@ -27,6 +27,7 @@
       </nav>
       <div class="header-actions">
         <button class="text-button search-toggle" aria-controls="search-panel" aria-expanded="false" data-search-open>Search</button>
+        <button class="text-button" data-account-open aria-controls="account-modal" aria-expanded="false">Sign in</button>
         <button class="text-button" data-cart-open aria-label="Open shopping bag" aria-controls="cart-drawer" aria-expanded="false">Bag <span class="cart-count" aria-live="polite">(0)</span></button>
       </div>
     </header>
@@ -105,9 +106,44 @@
         <aside class="checkout-summary"><h3>Order summary</h3><div id="checkout-items"></div><div class="summary-line"><span>Subtotal</span><b id="checkout-subtotal">£0.00</b></div><div class="summary-line"><span>Delivery</span><b id="checkout-delivery">£2.99</b></div><div class="summary-line total"><span>Total</span><b id="checkout-total">£0.00</b></div></aside>
       </form>
     </dialog>
+    <dialog class="account-modal" id="account-modal" aria-labelledby="account-title">
+      <section class="account-shell">
+        <button class="account-close" type="button" data-account-close aria-label="Close account">×</button>
+        <p class="eyebrow">Your Halo</p><h2 id="account-title">Account &amp; orders</h2>
+        <p class="account-intro">Create an account to keep your Halo orders together.</p>
+        <div id="customer-account-guest">
+          <div class="account-mode" role="group" aria-label="Account action">
+            <button type="button" data-customer-mode="signin" aria-pressed="true">Sign in</button>
+            <button type="button" data-customer-mode="register" aria-pressed="false">Create account</button>
+          </div>
+          <form id="customer-auth-form">
+            <label for="customer-email">Email address</label>
+            <input id="customer-email" type="email" autocomplete="email" required>
+            <label for="customer-password">Password</label>
+            <input id="customer-password" type="password" autocomplete="current-password" minlength="8" required>
+            <button class="button button-dark" id="customer-auth-submit" type="submit">Sign in</button>
+            <button class="account-link" id="customer-password-reset" type="button">Forgot password?</button>
+          </form>
+        </div>
+        <div id="customer-account-signed" hidden>
+          <p class="account-email" id="customer-account-email"></p>
+          <div id="customer-verification-message" hidden>
+            <p>Verify your email to view order history and link future orders to this account.</p>
+            <button class="account-link" id="customer-verification-resend" type="button">Resend verification email</button>
+            <button class="account-link" id="customer-verification-refresh" type="button">I’ve verified my email</button>
+          </div>
+          <section id="customer-order-history" hidden aria-labelledby="customer-orders-title">
+            <div class="account-orders-heading"><h3 id="customer-orders-title">Order history</h3><button class="account-link" id="customer-orders-refresh" type="button">Refresh</button></div>
+            <div id="customer-order-list" aria-live="polite"></div>
+          </section>
+          <button class="account-link" id="customer-sign-out" type="button">Sign out</button>
+        </div>
+        <p class="account-message" id="customer-account-message" role="status" aria-live="polite"></p>
+      </section>
+    </dialog>
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
     <script src="delivery.js"></script>
-    <script src="app.js?v=20261002-kive-blur"></script>
+    <script src="app.js?v=20261124-customer-orders"></script>
   </body>
 </html>

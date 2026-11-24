@@ -3,6 +3,7 @@ window.HALO_DELIVERY_CONFIG = {
   serviceAreaEndpoint: '',
   checkoutSessionEndpoint: '/api/createCheckoutSession',
   checkoutStatusEndpoint: '/api/getCheckoutStatus',
+  customerOrdersEndpoint: '/api/customerOrders',
   adminOrdersEndpoint: '/api/adminOrders',
   circumCheckoutEnabled: false,
   postcodeLookupEndpoint: 'https://api.postcodes.io/postcodes/',

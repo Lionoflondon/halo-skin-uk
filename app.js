@@ -80,6 +80,110 @@ let checkoutSubtotal = 0;
 let checkoutDiscount = 0;
 let activeFilter = 'all';
 let activeOverlayOpener = null;
+let firebaseAppPromise = null;
+let customerAuthApiPromise = null;
+let customerAuth = null;
+let customerAuthApi = null;
+let customerAuthUser = null;
+let customerAuthStateReady = Promise.resolve(null);
+let customerAuthMode = 'signin';
+let customerOrdersRequest = 0;
+
+async function getHaloFirebaseApp() {
+  if (!window.HALO_FIREBASE_CONFIG?.projectId) throw new Error('Halo account services are not configured yet.');
+  if (!firebaseAppPromise) {
+    firebaseAppPromise = import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js').then(({ initializeApp, getApps }) =>
+      getApps().length ? getApps()[0] : initializeApp(window.HALO_FIREBASE_CONFIG));
+  }
+  return firebaseAppPromise;
+}
+
+async function initializeCustomerAccount() {
+  if (customerAuthApi) return customerAuthApi;
+  if (!customerAuthApiPromise) {
+    customerAuthApiPromise = Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js'), getHaloFirebaseApp()
+    ]).then(async ([authApi, app]) => {
+      const auth = authApi.getAuth(app);
+      await authApi.setPersistence(auth, authApi.browserLocalPersistence);
+      customerAuth = auth;
+      customerAuthApi = authApi;
+      let resolveInitialAuthState;
+      let initialAuthStateLoaded = false;
+      customerAuthStateReady = new Promise(resolve => { resolveInitialAuthState = resolve; });
+      authApi.onAuthStateChanged(auth, user => {
+        customerAuthUser = user;
+        renderCustomerAccount();
+        if (user?.emailVerified) loadCustomerOrders();
+        if (!initialAuthStateLoaded) {
+          initialAuthStateLoaded = true;
+          resolveInitialAuthState(user);
+        }
+      });
+      return authApi;
+    }).catch(error => {
+      customerAuthApiPromise = null;
+      throw error;
+    });
+  }
+  return customerAuthApiPromise;
+}
+
+function renderCustomerAccount() {
+  const guestPanel = $('#customer-account-guest');
+  const signedPanel = $('#customer-account-signed');
+  if (!guestPanel || !signedPanel) return;
+  const signedIn = Boolean(customerAuthUser);
+  const verified = Boolean(customerAuthUser?.emailVerified);
+  guestPanel.hidden = signedIn;
+  signedPanel.hidden = !signedIn;
+  if (signedIn) {
+    $('#customer-account-email').textContent = customerAuthUser.email || 'HALO customer';
+    $('#customer-verification-message').hidden = verified;
+    $('#customer-order-history').hidden = !verified;
+    const email = $('#checkout-form [name="email"]');
+    if (email && verified) email.value = customerAuthUser.email || '';
+  }
+  const openButton = $('[data-account-open]');
+  if (openButton) openButton.textContent = verified ? 'Account' : 'Sign in';
+}
+
+function renderCustomerOrders(orders) {
+  const list = $('#customer-order-list');
+  if (!list) return;
+  if (!orders.length) {
+    list.innerHTML = '<p class="account-empty">No orders are linked to this account yet. Orders placed before signing in cannot be linked here.</p>';
+    return;
+  }
+  list.innerHTML = orders.map(order => `
+    <article class="customer-order">
+      <div class="customer-order-heading"><strong>Order ${escapeHtml(order.id.slice(0, 8).toUpperCase())}</strong><span>${money(Number(order.totalPence || 0) / 100)}</span></div>
+      <p>${escapeHtml((order.items || []).map(item => `${item.title} × ${item.quantity}`).join(', '))}</p>
+      <div class="customer-order-meta"><span>${escapeHtml(String(order.status || '').replaceAll('_', ' '))}</span><span>${escapeHtml(String(order.paymentStatus || '').replaceAll('_', ' '))}</span>${order.createdAt ? `<time datetime="${escapeHtml(order.createdAt)}">${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' }).format(new Date(order.createdAt))}</time>` : ''}</div>
+      ${order.deliveryStatus ? `<p>Delivery: ${escapeHtml(order.deliveryStatus)}</p>` : ''}
+      ${order.trackingUrl?.startsWith('https://') ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener noreferrer">Track order</a>` : ''}
+      ${order.refundedPence ? `<p>Refunded ${money(Number(order.refundedPence) / 100)}</p>` : ''}
+    </article>`).join('');
+}
+
+async function loadCustomerOrders() {
+  const user = customerAuthUser;
+  const requestNumber = ++customerOrdersRequest;
+  const list = $('#customer-order-list');
+  if (!user?.emailVerified || !list) return;
+  list.textContent = 'Loading your orders…';
+  try {
+    const endpoint = window.HALO_DELIVERY_CONFIG?.customerOrdersEndpoint;
+    if (!endpoint) throw new Error('Order history is not available yet.');
+    const token = await user.getIdToken();
+    const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || 'Your orders could not be loaded.');
+    if (requestNumber === customerOrdersRequest && customerAuthUser?.uid === user.uid) renderCustomerOrders(result.orders || []);
+  } catch (error) {
+    if (requestNumber === customerOrdersRequest) list.textContent = error.message || 'Your orders could not be loaded.';
+  }
+}
 
 function productCard(product) {
   const soldOut = product.available === false;
@@ -129,11 +233,9 @@ async function loadProducts() {
   if (!firebaseConfig?.projectId) return;
 
   try {
-    const [{ initializeApp, getApps }, { collection, getDocs, getFirestore, query, where }] = await Promise.all([
-      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js'),
-      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js')
+    const [{ collection, getDocs, getFirestore, query, where }, firebaseApp] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js'), getHaloFirebaseApp()
     ]);
-    const firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     const database = getFirestore(firebaseApp);
     const catalogueQuery = query(collection(database, 'products'), where('published', '==', true));
     const snapshot = await getDocs(catalogueQuery);
@@ -490,14 +592,19 @@ function bindInteractions() {
         email: $('#checkout-form [name="email"]')?.value.trim(),
         deliveryMethod: selectedDeliveryMethod()
       });
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+      try { await initializeCustomerAccount(); await customerAuthStateReady; }
+      catch (_) { /* Guest checkout remains available when customer Auth is unavailable. */ }
+      const linkedCustomer = customerAuthUser?.emailVerified ? customerAuthUser : null;
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${payload}\n${linkedCustomer?.uid || ''}`));
       const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
       const storageKey = `halo_checkout_request:${fingerprint}`;
       const requestKey = sessionStorage.getItem(storageKey) || crypto.randomUUID();
       sessionStorage.setItem(storageKey, requestKey);
+      const headers = { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey };
+      if (linkedCustomer) headers.Authorization = `Bearer ${await linkedCustomer.getIdToken()}`;
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey },
+        headers,
         body: payload
       });
       const result = await response.json().catch(() => ({}));
@@ -511,6 +618,80 @@ function bindInteractions() {
     }
   });
   $('[data-checkout-close]')?.addEventListener('click', () => $('#checkout-modal')?.close());
+
+  $('[data-account-open]')?.addEventListener('click', async () => {
+    $('[data-account-open]').setAttribute('aria-expanded', 'true');
+    $('#account-modal')?.showModal();
+    try { await initializeCustomerAccount(); }
+    catch (error) { $('#customer-account-message').textContent = error.message || 'HALO accounts are temporarily unavailable.'; }
+    renderCustomerAccount();
+  });
+  $('[data-account-close]')?.addEventListener('click', () => $('#account-modal')?.close());
+  $('#account-modal')?.addEventListener('close', () => $('[data-account-open]')?.setAttribute('aria-expanded', 'false'));
+  $$('[data-customer-mode]').forEach(button => button.addEventListener('click', () => {
+    customerAuthMode = button.dataset.customerMode;
+    $$('[data-customer-mode]').forEach(option => option.setAttribute('aria-pressed', String(option === button)));
+    $('#customer-auth-submit').textContent = customerAuthMode === 'register' ? 'Create account' : 'Sign in';
+    $('#customer-password').autocomplete = customerAuthMode === 'register' ? 'new-password' : 'current-password';
+    $('#customer-account-message').textContent = '';
+  }));
+  $('#customer-auth-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const email = $('#customer-email').value.trim();
+    const password = $('#customer-password').value;
+    const button = $('#customer-auth-submit');
+    button.disabled = true;
+    try {
+      const api = await initializeCustomerAccount();
+      if (customerAuthMode === 'register') {
+        const credential = await api.createUserWithEmailAndPassword(customerAuth, email, password);
+        await api.sendEmailVerification(credential.user);
+        $('#customer-account-message').textContent = 'Your account is ready. Check your email to verify it, then return here to view orders and link new purchases.';
+      } else {
+        await api.signInWithEmailAndPassword(customerAuth, email, password);
+        $('#customer-account-message').textContent = customerAuth.currentUser?.emailVerified
+          ? 'You are signed in.' : 'Check your inbox for the verification link before viewing order history.';
+      }
+      renderCustomerAccount();
+    } catch (error) {
+      const messages = {
+        'auth/email-already-in-use': 'An account already exists for this email. Sign in instead.',
+        'auth/invalid-credential': 'Email or password was not recognised.',
+        'auth/weak-password': 'Choose a password with at least 8 characters.',
+        'auth/operation-not-allowed': 'Customer sign-in is not enabled for this HALO environment.'
+      };
+      $('#customer-account-message').textContent = messages[error.code] || error.message || 'We could not complete sign-in.';
+    } finally { button.disabled = false; }
+  });
+  $('#customer-password-reset')?.addEventListener('click', async () => {
+    const email = $('#customer-email').value.trim();
+    if (!email) { $('#customer-account-message').textContent = 'Enter your email address first.'; return; }
+    try {
+      const api = await initializeCustomerAccount();
+      await api.sendPasswordResetEmail(customerAuth, email);
+      $('#customer-account-message').textContent = 'If an account exists for that address, a password reset email is on its way.';
+    } catch (error) { $('#customer-account-message').textContent = error.message || 'A reset email could not be sent.'; }
+  });
+  $('#customer-verification-refresh')?.addEventListener('click', async () => {
+    if (!customerAuthUser) return;
+    try {
+      await customerAuthApi.reload(customerAuthUser);
+      await customerAuthUser.getIdToken(true);
+      renderCustomerAccount();
+      if (customerAuthUser.emailVerified) loadCustomerOrders();
+    } catch (error) { $('#customer-account-message').textContent = error.message || 'Account status could not be refreshed.'; }
+  });
+  $('#customer-verification-resend')?.addEventListener('click', async () => {
+    try {
+      await customerAuthApi.sendEmailVerification(customerAuthUser);
+      $('#customer-account-message').textContent = 'A new verification link has been sent.';
+    } catch (error) { $('#customer-account-message').textContent = error.message || 'A verification link could not be sent.'; }
+  });
+  $('#customer-sign-out')?.addEventListener('click', async () => {
+    try { await customerAuthApi?.signOut(customerAuth); }
+    catch (error) { $('#customer-account-message').textContent = error.message || 'Sign-out failed.'; }
+  });
+  $('#customer-orders-refresh')?.addEventListener('click', loadCustomerOrders);
 
   document.addEventListener('keydown', event => {
     const openPanel = $('.drawer.open,.search-panel.open');
@@ -576,3 +757,7 @@ bindInteractions();
 renderCart();
 showStripeReturnStatus();
 loadProducts();
+initializeCustomerAccount().catch(error => {
+  const button = $('[data-account-open]');
+  if (button) button.title = error.message || 'Customer account sign-in is unavailable.';
+});

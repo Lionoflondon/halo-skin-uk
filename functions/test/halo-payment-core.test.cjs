@@ -39,4 +39,8 @@ test('checkout request fingerprint is stable for equivalent emails', () => {
   const first = checkoutFingerprint({ items: [{ id: 'lip-01', quantity: 1 }], email: ' BUYER@example.com ', deliveryMethod: 'standard' });
   const second = checkoutFingerprint({ items: [{ id: 'lip-01', quantity: 1 }], email: 'buyer@example.com', deliveryMethod: 'standard' });
   assert.equal(first, second);
+  assert.notEqual(
+    checkoutFingerprint({ items: [{ id: 'lip-01', quantity: 1 }], email: 'buyer@example.com', deliveryMethod: 'standard', customerUid: 'customer-a' }),
+    checkoutFingerprint({ items: [{ id: 'lip-01', quantity: 1 }], email: 'buyer@example.com', deliveryMethod: 'standard', customerUid: 'customer-b' })
+  );
 });

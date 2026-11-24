@@ -91,4 +91,4 @@ jobs:
       - name: Deploy only to the configured HALO staging project
         env:
           PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
-        run: npx --yes firebase-tools@13.35.1 deploy --only hosting,functions,firestore:rules --project "$PROJECT_ID" --non-interactive
+        run: npx --yes firebase-tools@13.35.1 deploy --only hosting,functions,firestore:rules,firestore:indexes,auth --project "$PROJECT_ID" --non-interactive

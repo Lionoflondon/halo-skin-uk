@@ -33,8 +33,8 @@ function parseCart(items, products) {
   });
 }
 
-function checkoutFingerprint({ items, email, deliveryMethod }) {
-  return JSON.stringify({ items, email: String(email || '').trim().toLowerCase(), deliveryMethod });
+function checkoutFingerprint({ items, email, deliveryMethod, customerUid = null }) {
+  return JSON.stringify({ items, email: String(email || '').trim().toLowerCase(), deliveryMethod, customerUid: customerUid || null });
 }
 
 module.exports = { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey };

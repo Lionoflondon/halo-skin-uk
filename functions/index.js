@@ -9,6 +9,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
 const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
+const { customerOrderSummary } = require('./customer-order-core');
 
 initializeApp();
 const db = getFirestore();
@@ -68,6 +69,19 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
     if (requestKey.length < 16 || requestKey.length > 128) return sendError(response, 400, 'idempotency_key_required', 'Refresh checkout and try again.');
     const email = String(request.body?.email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return sendError(response, 422, 'invalid_email', 'Enter a valid email address.');
+    let customerUid = null;
+    const authorization = request.get('authorization') || '';
+    if (authorization) {
+      const bearer = /^Bearer (.+)$/.exec(authorization);
+      if (!bearer) return sendError(response, 401, 'customer_sign_in_required', 'Sign in again to attach this order to your HALO account.');
+      let identity;
+      try { identity = await getAuth().verifyIdToken(bearer[1], true); }
+      catch (_) { return sendError(response, 401, 'customer_sign_in_required', 'Sign in again to attach this order to your HALO account.'); }
+      if (identity.email_verified !== true || String(identity.email || '').toLowerCase() !== email) {
+        return sendError(response, 403, 'customer_email_mismatch', 'Verify your account email and use it for this order.');
+      }
+      customerUid = identity.uid;
+    }
     const deliveryMethod = String(request.body?.deliveryMethod || 'standard');
     // Circum eligibility and delivery creation require a verified server-side
     // integration; the browser postcode checker is not trusted for payment.
@@ -77,7 +91,7 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
     const items = parseCart(request.body?.items, products);
     const subtotalPence = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
     if (!Number.isSafeInteger(subtotalPence) || subtotalPence > 2_000_000) return sendError(response, 422, 'basket_limit', 'Basket total is outside the allowed limit.');
-    const fingerprint = checkoutFingerprint({ items, email, deliveryMethod });
+    const fingerprint = checkoutFingerprint({ items, email, deliveryMethod, customerUid });
     const orderId = hash(requestKey).slice(0, 32);
     orderRef = db.collection('haloOrders').doc(orderId);
     await db.runTransaction(async transaction => {
@@ -87,7 +101,7 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
         brand: 'HALO', status: 'pending_payment', paymentStatus: 'pending', currency: 'GBP',
         items, subtotalPence, deliveryPence: STANDARD_DELIVERY_PENCE,
         totalPence: subtotalPence + STANDARD_DELIVERY_PENCE,
-        customerEmail: email, deliveryMethod, requestFingerprint: fingerprint,
+        customerEmail: email, customerUid, deliveryMethod, requestFingerprint: fingerprint,
         createdAt: FieldValue.serverTimestamp()
       });
     });
@@ -117,6 +131,24 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
     const message = error instanceof Error ? error.message : '';
     sendError(response, /basket|item|price|email|delivery|checkout key|allowed limit/i.test(message) ? 422 : 503,
       'checkout_unavailable', message || 'Secure checkout is temporarily unavailable.');
+  }
+});
+
+exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to view your HALO orders.');
+  const bearer = /^Bearer (.+)$/.exec(request.get('authorization') || '');
+  if (!bearer) return sendError(response, 401, 'sign_in_required', 'Sign in to view your HALO orders.');
+  try {
+    const identity = await getAuth().verifyIdToken(bearer[1], true);
+    if (identity.email_verified !== true) return sendError(response, 403, 'email_verification_required', 'Verify your account email to view order history.');
+    const snapshot = await db.collection('haloOrders').where('customerUid', '==', identity.uid).orderBy('createdAt', 'desc').limit(50).get();
+    const orders = snapshot.docs
+      .map(document => customerOrderSummary(document.id, document.data()))
+      .filter(Boolean)
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    response.set('Cache-Control', 'no-store').status(200).json({ orders });
+  } catch (_) {
+    sendError(response, 401, 'sign_in_required', 'Your session has expired. Sign in again to view your orders.');
   }
 });
 
