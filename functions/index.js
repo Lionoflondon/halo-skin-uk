@@ -587,7 +587,7 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
       ]);
       const stripeAccountId = stripeAccount.id;
       const ledgerEntry = balanceTransaction
-        ? haloFinancialEntry({ balanceTransaction, stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId })
+        ? haloFinancialEntry({ balanceTransaction, stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId, expectedGrossPence: charge.amount_captured })
         : pendingHaloFinancialEntry({ stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId, grossPence: charge.amount });
       const ledgerRef = db.collection('haloFinancialEntries').doc(`charge_${charge.id}`);
       await db.runTransaction(async transaction => {
@@ -619,7 +619,7 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
         financialEntries.push({
           ref: db.collection('haloFinancialEntries').doc(`refund_${refund.id}`),
           data: balanceTransaction
-            ? haloFinancialEntry({ balanceTransaction, stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId })
+            ? haloFinancialEntry({ balanceTransaction, stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId, expectedGrossPence: -refund.amount })
             : pendingHaloFinancialEntry({ stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId, grossPence: -refund.amount })
         });
       }

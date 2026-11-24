@@ -11,7 +11,7 @@ const base = {
 const metadata = { stripeAccountId: 'acct_rothcrossTest01', orderId: 'a'.repeat(32), sourceType: 'charge', sourceId: 'ch_test_1', paymentIntentId: 'pi_test_1' };
 
 test('stores reconciled HALO charge gross, fees, net and shared-account identity', () => {
-  const entry = haloFinancialEntry({ balanceTransaction: base, ...metadata });
+  const entry = haloFinancialEntry({ balanceTransaction: base, ...metadata, expectedGrossPence: 2500 });
   assert.equal(entry.brand, 'HALO');
   assert.equal(entry.store, 'halo');
   assert.equal(entry.grossPence, 2500);
@@ -22,11 +22,12 @@ test('stores reconciled HALO charge gross, fees, net and shared-account identity
 });
 
 test('preserves refund direction and rejects arithmetic or currency mismatches', () => {
-  const refund = haloFinancialEntry({ balanceTransaction: { ...base, amount: -1000, fee: 0, net: -1000, reporting_category: 'refund' }, ...metadata, sourceType: 'refund', sourceId: 're_test_1' });
+  const refund = haloFinancialEntry({ balanceTransaction: { ...base, amount: -1000, fee: 0, net: -1000, reporting_category: 'refund' }, ...metadata, sourceType: 'refund', sourceId: 're_test_1', expectedGrossPence: -1000 });
   assert.equal(refund.grossPence, -1000);
   assert.equal(refund.netPence, -1000);
   assert.throws(() => haloFinancialEntry({ balanceTransaction: { ...base, net: 100 }, ...metadata }), /does not reconcile/);
   assert.throws(() => haloFinancialEntry({ balanceTransaction: { ...base, currency: 'usd' }, ...metadata }), /does not reconcile/);
+  assert.throws(() => haloFinancialEntry({ balanceTransaction: base, ...metadata, expectedGrossPence: 2400 }), /does not reconcile/);
 });
 
 test('keeps unresolved balance transactions visible without inventing fees', () => {

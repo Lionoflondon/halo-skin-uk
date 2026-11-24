@@ -1,12 +1,13 @@
 'use strict';
 
-function haloFinancialEntry({ balanceTransaction, stripeAccountId, orderId, sourceType, sourceId, paymentIntentId }) {
+function haloFinancialEntry({ balanceTransaction, stripeAccountId, orderId, sourceType, sourceId, paymentIntentId, expectedGrossPence }) {
   if (!balanceTransaction || typeof balanceTransaction.id !== 'string' ||
       !/^acct_[A-Za-z0-9]+$/.test(stripeAccountId || '') || !/^[a-f0-9]{32}$/.test(String(orderId || '')) ||
       !['charge', 'refund'].includes(sourceType) || typeof sourceId !== 'string' ||
       !Number.isSafeInteger(balanceTransaction.amount) || !Number.isSafeInteger(balanceTransaction.fee) ||
       !Number.isSafeInteger(balanceTransaction.net) || balanceTransaction.currency !== 'gbp' ||
       balanceTransaction.net !== balanceTransaction.amount - balanceTransaction.fee ||
+      !Number.isSafeInteger(expectedGrossPence) || balanceTransaction.amount !== expectedGrossPence ||
       !Number.isSafeInteger(balanceTransaction.created) || !Number.isSafeInteger(balanceTransaction.available_on)) {
     throw new Error('Stripe balance transaction is incomplete or does not reconcile in GBP.');
   }
