@@ -10,7 +10,7 @@
 
 ## Checkout acceptance
 
-HALO must use the verified Rothcross test account and separate HALO webhook and order attribution. Stage only the HALO-specific test key and webhook signing secret in Secret Manager. A hosted acceptance run must record successful, declined, expired, duplicate and cross-brand events plus partial and full refunds. Reconcile gross, fees and refund net using Stripe balance transactions. There is no hosted payment receipt or reconciliation yet.
+HALO uses the shared Rothcross Stripe account, which serves CORPVS CHRISTI, HALO and other Rothcross brands. HALO orders, checkout sessions, webhook events and financial reports must each carry an explicit HALO brand/store attribution. Verify that the configured test key belongs to the shared Rothcross account. The webhook secret is scoped to HALO endpoint configuration, not assumed to be a distinct Stripe account credential. Stage only the HALO-specific test key and webhook signing secret in Secret Manager. A hosted acceptance run must record successful, declined, expired, duplicate and cross-brand events plus partial and full refunds. Reconcile gross, fees and refund net using Stripe balance transactions. There is no hosted payment receipt or reconciliation yet.
 
 ## Central ROTH acceptance
 
