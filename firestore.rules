@@ -5,6 +5,7 @@ service cloud.firestore {
     function isHaloAdmin() {
       return request.auth != null
         && request.auth.token.email_verified == true
+        && request.auth.token.firebase.get('sign_in_second_factor', '') != ''
         && request.auth.token.email == 'ayojason600@gmail.com';
     }
 

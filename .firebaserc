@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "halo-skin-uk"
+    "default": "halo-skin-uk",
+    "staging": "halo-skin-uk-stg"
   }
 }
