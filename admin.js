@@ -255,6 +255,16 @@ function watchProducts() {
   });
 }
 
+function renderOrderHistory(history = []) {
+  if (!history.length) return '';
+  const rows = history.map(item => {
+    const transition = item.from && item.to ? `${item.from} → ${item.to}` : item.type || 'Order event';
+    const actor = item.actorEmail || 'Stripe/system';
+    return `<p>${escapeHtml(transition)}<br>${escapeHtml(item.reason || '')}<br><small>${escapeHtml(actor)} · ${escapeHtml(item.at || 'time unavailable')}</small></p>`;
+  }).join('');
+  return `<details><summary>Order history</summary>${rows}</details>`;
+}
+
 function renderShippingDetails(details) {
   if (!details) return '';
   const lines = [details.name, details.line1, details.line2, details.city, details.region, details.postcode, details.country];
@@ -282,6 +292,7 @@ async function loadOrders() {
       <td>${escapeHtml(order.paymentStatus || 'pending')}</td>
       <td>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener">Track ↗</a><br>` : ''}
         ${renderShippingDetails(order.shippingDetails)}
+        ${renderOrderHistory(order.statusHistory)}
         <button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>
         ${['paid', 'partially_refunded'].includes(order.paymentStatus) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}">Refund</button>` : ''}</td>
     </tr>`).join('') : '<tr><td colspan="6" class="empty">No orders found.</td></tr>';

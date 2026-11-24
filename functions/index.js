@@ -125,7 +125,7 @@ exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, 
   try {
     await requireHaloAdmin(request);
     const snapshot = await db.collection('haloOrders').orderBy('createdAt', 'desc').limit(100).get();
-    const orders = snapshot.docs.map(document => {
+    const orders = await Promise.all(snapshot.docs.map(async document => {
       const order = document.data();
       return {
         id: document.id, status: order.status, paymentStatus: order.paymentStatus || 'pending',
@@ -133,9 +133,13 @@ exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, 
         shippingDetails: order.shippingDetails || null,
         deliveryMethod: order.deliveryMethod, trackingUrl: order.trackingUrl || null,
         createdAt: order.createdAt?.toDate?.().toISOString() || null,
+        statusHistory: (await document.ref.collection('events').orderBy('at', 'desc').limit(8).get()).docs.map(event => {
+          const data = event.data();
+          return { type: data.type, from: data.from || null, to: data.to || null, reason: data.reason || null, actorEmail: data.actorEmail || null, at: data.at?.toDate?.().toISOString() || null };
+        }),
         items: (order.items || []).map(item => ({ title: item.title, quantity: item.quantity }))
       };
-    });
+    }));
     response.set('Cache-Control', 'no-store').status(200).json({ orders });
   } catch (error) {
     sendError(response, error instanceof AdminAccessError ? 403 : 503, 'admin_orders_unavailable', error.message || 'HALO orders could not be loaded.');
