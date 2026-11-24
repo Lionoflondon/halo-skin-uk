@@ -78,4 +78,11 @@ function stripeRefundOrderUpdate(order, charge) {
   };
 }
 
-module.exports = { nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate };
+function haloRefundOrderId(paymentIntentId, paymentIntent) {
+  if (!paymentIntentId || paymentIntent?.id !== paymentIntentId) return null;
+  const metadata = paymentIntent.metadata || {};
+  if (metadata.store !== 'halo' || !/^[a-f0-9]{32}$/.test(String(metadata.orderId || ''))) return null;
+  return metadata.orderId;
+}
+
+module.exports = { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate };

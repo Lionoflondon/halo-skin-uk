@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('../halo-order-core');
+const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('../halo-order-core');
 
 const order = { id: 'order_halo_01', status: 'pending_payment', paymentStatus: 'pending', stripeSessionId: 'cs_test_halo_01', totalPence: 3899 };
 function event(type, object) { return { id: 'evt_test_01', type, livemode: false, data: { object } }; }
@@ -79,4 +79,13 @@ test('an older refund event cannot decrease the recorded cumulative refund', () 
   const refunded = { ...order, paymentIntentId: 'pi_test_halo_01', refundedPence: order.totalPence };
   const charge = { payment_intent: refunded.paymentIntentId, currency: 'gbp', amount: order.totalPence, amount_refunded: 1000 };
   assert.deepEqual(stripeRefundOrderUpdate(refunded, charge), { eventStatus: 'older_refund_total_ignored' });
+});
+
+test('resolves refunds from PaymentIntent metadata on the shared Rothcross Stripe account', () => {
+  const orderId = 'a'.repeat(32);
+  const paymentIntent = { id: 'pi_test_halo_01', metadata: { store: 'halo', orderId } };
+  assert.equal(haloRefundOrderId(paymentIntent.id, paymentIntent), orderId);
+  assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'cc', orderId } }), null);
+  assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'halo', orderId: 'invalid' } }), null);
+  assert.equal(haloRefundOrderId('pi_test_other', paymentIntent), null);
 });

@@ -8,7 +8,7 @@ const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
 const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
-const { nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
+const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
 
 initializeApp();
 const db = getFirestore();
@@ -303,8 +303,12 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
       const charge = event.data.object;
       const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : '';
       if (!paymentIntentId) return response.status(200).json({ received: true, ignored: 'no_payment_intent' });
-      const orderId = String(charge.metadata?.orderId || '');
-      if (charge.metadata?.store !== 'halo' || !/^[a-f0-9]{32}$/.test(orderId)) {
+      // Rothcross uses one Stripe account across its brands. Charge metadata
+      // is not guaranteed to contain PaymentIntent metadata, so use the
+      // authoritative PaymentIntent to identify HALO's own order.
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const orderId = haloRefundOrderId(paymentIntentId, paymentIntent);
+      if (!orderId) {
         return response.status(200).json({ received: true, ignored: 'wrong_store' });
       }
       const orderRef = db.collection('haloOrders').doc(orderId);
@@ -314,7 +318,12 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
           transaction.get(orderRef)
         ]);
         if (eventSnapshot.exists) return;
+        if (!orderSnapshot.exists) throw new Error('HALO order has not been recorded yet.');
         const order = orderSnapshot.data();
+        if (order.brand !== 'HALO') {
+          transaction.create(eventRef, { type: event.type, status: 'ignored_wrong_store', createdAt: FieldValue.serverTimestamp() });
+          return;
+        }
         // Stripe can deliver the refund before checkout.session.completed.
         // Leave the event unrecorded so Stripe can retry once the order is paid.
         if (!order?.paymentIntentId) throw new Error('HALO payment has not been recorded yet.');
