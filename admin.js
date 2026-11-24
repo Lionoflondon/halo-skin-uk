@@ -303,6 +303,30 @@ function renderShippingDetails(details) {
   return `<details><summary>Delivery address</summary>${lines.filter(Boolean).map(escapeHtml).join('<br>')}</details>`;
 }
 
+async function loadFinancialReport() {
+  const notice = $('#finance-notice');
+  notice.textContent = 'Loading HALO-only transactions from the shared Rothcross Stripe account…';
+  try {
+    const user = auth.currentUser;
+    const headers = await getProtectedRequestHeaders(user);
+    const response = await fetch('/api/adminFinancialReport', { headers, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+    if (auth.currentUser !== user) return;
+    $('#finance-account').textContent = `Rothcross Stripe account ${result.stripeAccountId} · HALO only · GBP`;
+    $('#finance-totals').innerHTML = [
+      ['Gross', result.totals.grossPence], ['Processor fees', result.totals.feePence], ['Net', result.totals.netPence]
+    ].map(([label, value]) => `<span class="pill">${label}: ${money(Number(value) / 100)}</span>`).join('');
+    const entries = result.entries || [];
+    $('#finance-entries').innerHTML = entries.length
+      ? entries.map(entry => `<tr><td>${escapeHtml(entry.sourceType)} · ${escapeHtml(entry.sourceId)}</td><td>${escapeHtml(entry.orderId)}</td><td>${money(Number(entry.grossPence) / 100)}</td><td>${entry.feePence === null ? '—' : money(Number(entry.feePence) / 100)}</td><td>${entry.netPence === null ? '—' : money(Number(entry.netPence) / 100)}</td><td>${escapeHtml(entry.reconciliationStatus)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">No HALO Stripe transactions found.</td></tr>';
+    notice.textContent = `${result.reconciledCount} reconciled entries · ${result.pendingCount} pending balance transactions. Totals include reconciled entries only.`;
+  } catch (error) {
+    notice.textContent = error.message || 'HALO financial reconciliation could not be loaded.';
+  }
+}
+
 async function loadOrders() {
   const tbody = $('#orders');
   const notice = $('#admin-notice');
@@ -343,6 +367,7 @@ onAuthStateChanged(auth, async user => {
     message($('#login-message'), '');
     watchProducts();
     loadOrders();
+    loadFinancialReport();
     return;
   }
   unsubscribeProducts?.();
@@ -500,6 +525,7 @@ $('#product-form').addEventListener('submit', saveProduct);
 $('#reset-product').addEventListener('click', resetProductForm);
 $('#import-products').addEventListener('click', importStarterProducts);
 $('#refresh').addEventListener('click', loadOrders);
+$('#refresh-finance').addEventListener('click', loadFinancialReport);
 $('#orders').addEventListener('click', async event => {
   const statusButton = event.target.closest('[data-order-status]');
   const refundButton = event.target.closest('[data-order-refund]');

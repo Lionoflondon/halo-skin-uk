@@ -45,6 +45,7 @@
         <nav class="admin-tabs" aria-label="Admin sections">
           <button class="admin-tab active" type="button" data-admin-tab="products">Products</button>
           <button class="admin-tab" type="button" data-admin-tab="deliveries">Deliveries</button>
+          <button class="admin-tab" type="button" data-admin-tab="finance">Finance</button>
           <button class="admin-tab" type="button" data-admin-tab="account">Account</button>
         </nav>
 
@@ -115,6 +116,17 @@
               <tbody id="orders"><tr><td colspan="6" class="empty">No orders loaded.</td></tr></tbody>
             </table>
           </div>
+        </section>
+
+        <section class="admin-section" data-admin-panel="finance">
+          <div class="panel-heading">
+            <div><p class="eyebrow">ROTHCROSS · SHARED STRIPE ACCOUNT</p><h2>HALO financial reconciliation</h2></div>
+            <button class="secondary-button" id="refresh-finance" type="button">Refresh</button>
+          </div>
+          <p class="notice" id="finance-notice">This report includes HALO-labelled Stripe transactions only and keeps them separate from CORPVS CHRISTI and other Rothcross businesses.</p>
+          <p class="catalogue-summary" id="finance-account">Waiting for a secure staging reconciliation.</p>
+          <div class="status-row finance-totals" id="finance-totals" aria-live="polite"></div>
+          <div class="table-wrap"><table><thead><tr><th>Source</th><th>Order</th><th>Gross</th><th>Processor fee</th><th>Net</th><th>Reconciliation</th></tr></thead><tbody id="finance-entries"><tr><td colspan="6" class="empty">No reconciliation loaded.</td></tr></tbody></table></div>
         </section>
 
         <section class="admin-section account-section" data-admin-panel="account">

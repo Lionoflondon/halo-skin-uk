@@ -13,6 +13,7 @@ const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefund
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
+const { haloFinancialEntry, pendingHaloFinancialEntry } = require('./halo-financial-core');
 
 initializeApp();
 const db = getFirestore();
@@ -54,6 +55,16 @@ async function assertRothcrossStripeAccount(stripe) {
 }
 function inventoryMovementRef(orderId, productId) {
   return db.collection('haloInventoryMovements').doc(hash(`${orderId}:${productId}`).slice(0, 32));
+}
+function balanceTransactionFrom(source) {
+  return typeof source?.balance_transaction === 'object' ? source.balance_transaction : null;
+}
+async function resolveBalanceTransaction(stripe, source) {
+  const embedded = balanceTransactionFrom(source);
+  if (embedded) return embedded;
+  const id = typeof source?.balance_transaction === 'string' ? source.balance_transaction : '';
+  if (!id) return null;
+  return stripe.balanceTransactions.retrieve(id);
 }
 async function commitReservedInventory(transaction, orderRef, order) {
   if (order.inventoryStatus !== 'reserved') return {};
@@ -296,6 +307,37 @@ exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, 
   }
 });
 
+exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 60, secrets: [stripeSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO administrator origin is not allowed.');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to load financial reconciliation.');
+  try {
+    await requireHaloAdmin(request);
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    const snapshot = await db.collection('haloFinancialEntries').orderBy('recordedAt', 'desc').limit(500).get();
+    const entries = snapshot.docs.map(document => ({ id: document.id, ...document.data() }))
+      .filter(entry => entry.brand === 'HALO' && entry.store === 'halo' && entry.stripeAccountId === expectedStripeAccountId.value());
+    const reconciled = entries.filter(entry => entry.reconciliationStatus === 'reconciled' && entry.currency === 'GBP');
+    const pending = entries.filter(entry => entry.reconciliationStatus !== 'reconciled' || entry.currency !== 'GBP');
+    const recent = entries.slice(0, 100);
+    const totals = reconciled.reduce((result, entry) => {
+      result.grossPence += entry.grossPence;
+      result.feePence += entry.feePence;
+      result.netPence += entry.netPence;
+      return result;
+    }, { grossPence: 0, feePence: 0, netPence: 0 });
+    response.set('Cache-Control', 'no-store').status(200).json({
+      brand: 'HALO', stripeAccountId: expectedStripeAccountId.value(), currency: 'GBP',
+      totals, reconciledCount: reconciled.length, pendingCount: pending.length,
+      entries: recent.map(({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }) => ({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }))
+    });
+  } catch (error) {
+    if (error instanceof AdminAccessError) return sendError(response, 403, 'admin_access_required', error.message);
+    sendError(response, 503, 'financial_report_unavailable', 'HALO financial reconciliation could not be loaded.');
+  }
+});
+
 exports.updateHaloOrder = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to update an order.');
   try {
@@ -506,6 +548,36 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
         if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
         transaction.create(eventRef, { type: event.type, orderId, status: eventStatus, createdAt: FieldValue.serverTimestamp() });
       });
+    } else if (event.type === 'charge.succeeded') {
+      const charge = event.data.object;
+      const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+      if (!paymentIntentId) return response.status(200).json({ received: true, ignored: 'no_payment_intent' });
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const orderId = paymentIntent.metadata?.orderId || '';
+      if (paymentIntent.metadata?.store !== 'halo' || !orderId || !/^[a-f0-9]{32}$/.test(orderId)) {
+        return response.status(200).json({ received: true, ignored: 'wrong_store' });
+      }
+      const orderRef = db.collection('haloOrders').doc(orderId);
+      const orderSnapshot = await orderRef.get();
+      if (!orderSnapshot.exists || orderSnapshot.data().brand !== 'HALO' ||
+          (orderSnapshot.data().paymentIntentId && orderSnapshot.data().paymentIntentId !== paymentIntentId)) {
+        throw new Error('HALO charge does not match a recorded HALO order.');
+      }
+      const [balanceTransaction, stripeAccount] = await Promise.all([
+        resolveBalanceTransaction(stripe, charge), stripe.accounts.retrieve()
+      ]);
+      const stripeAccountId = stripeAccount.id;
+      const ledgerEntry = balanceTransaction
+        ? haloFinancialEntry({ balanceTransaction, stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId })
+        : pendingHaloFinancialEntry({ stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId, grossPence: charge.amount });
+      const ledgerRef = db.collection('haloFinancialEntries').doc(`charge_${charge.id}`);
+      await db.runTransaction(async transaction => {
+        const [eventSnapshot, ledgerSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(ledgerRef)]);
+        if (!eventSnapshot.exists) transaction.create(eventRef, { type: event.type, orderId, status: 'processed', createdAt: FieldValue.serverTimestamp() });
+        if (!ledgerSnapshot.exists || (ledgerSnapshot.data().reconciliationStatus !== 'reconciled' && ledgerEntry.reconciliationStatus === 'reconciled')) {
+          transaction.set(ledgerRef, { ...ledgerEntry, recordedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        }
+      });
     } else if (event.type === 'charge.refunded') {
       const charge = event.data.object;
       const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : '';
@@ -519,12 +591,32 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
         return response.status(200).json({ received: true, ignored: 'wrong_store' });
       }
       const orderRef = db.collection('haloOrders').doc(orderId);
+      const account = await stripe.accounts.retrieve();
+      const refunds = await stripe.refunds.list({ charge: charge.id, limit: 100 });
+      if (refunds.has_more) throw new Error('HALO refund ledger exceeds the safe event page; reconcile additional Stripe refunds before processing.');
+      const financialEntries = [];
+      for (const refund of refunds.data) {
+        const balanceTransaction = await resolveBalanceTransaction(stripe, refund);
+        financialEntries.push({
+          ref: db.collection('haloFinancialEntries').doc(`refund_${refund.id}`),
+          data: balanceTransaction
+            ? haloFinancialEntry({ balanceTransaction, stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId })
+            : pendingHaloFinancialEntry({ stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId, grossPence: -refund.amount })
+        });
+      }
       await db.runTransaction(async transaction => {
-        const [eventSnapshot, orderSnapshot] = await Promise.all([
-          transaction.get(eventRef),
-          transaction.get(orderRef)
+        const [eventSnapshot, orderSnapshot, ...ledgerSnapshots] = await Promise.all([
+          transaction.get(eventRef), transaction.get(orderRef), ...financialEntries.map(entry => transaction.get(entry.ref))
         ]);
-        if (eventSnapshot.exists) return;
+        if (eventSnapshot.exists) {
+          financialEntries.forEach((entry, index) => {
+            const existing = ledgerSnapshots[index];
+            if (!existing.exists || (existing.data().reconciliationStatus !== 'reconciled' && entry.data.reconciliationStatus === 'reconciled')) {
+              transaction.set(entry.ref, { ...entry.data, recordedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+            }
+          });
+          return;
+        }
         if (!orderSnapshot.exists) throw new Error('HALO order has not been recorded yet.');
         const order = orderSnapshot.data();
         if (order.brand !== 'HALO') {
@@ -547,7 +639,13 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
             ...patch, refundedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
           });
         }
-        transaction.create(eventRef, {
+        financialEntries.forEach((entry, index) => {
+          const existing = ledgerSnapshots[index];
+          if (!existing.exists || (existing.data().reconciliationStatus !== 'reconciled' && entry.data.reconciliationStatus === 'reconciled')) {
+            transaction.set(entry.ref, { ...entry.data, recordedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          }
+        });
+        if (!eventSnapshot.exists) transaction.create(eventRef, {
           type: event.type, status: eventStatus, orderId,
           paymentIntentId, createdAt: FieldValue.serverTimestamp()
         });
