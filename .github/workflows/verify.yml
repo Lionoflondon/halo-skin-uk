@@ -3,7 +3,7 @@ name: HALO checks
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, codex/halo-stage4]
 
 permissions:
   contents: read
