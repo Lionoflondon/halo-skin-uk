@@ -1,0 +1,79 @@
+name: Deploy HALO staging
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: halo-staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: halo-staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix functions --no-audit --no-fund
+      - run: npm test
+      - name: Validate isolated staging target
+        env:
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+        run: |
+          test -n "$PROJECT_ID"
+          test "$PROJECT_ID" != "halo-skin-uk"
+          test "$PROJECT_ID" = "halo-skin-uk-stg"
+      - name: Inject the staging Firebase web configuration
+        env:
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+          API_KEY: ${{ vars.HALO_FIREBASE_API_KEY }}
+          AUTH_DOMAIN: ${{ vars.HALO_FIREBASE_AUTH_DOMAIN }}
+          STORAGE_BUCKET: ${{ vars.HALO_FIREBASE_STORAGE_BUCKET }}
+          MESSAGING_SENDER_ID: ${{ vars.HALO_FIREBASE_MESSAGING_SENDER_ID }}
+          STRIPE_ACCOUNT_ID: ${{ vars.ROTHCROSS_STRIPE_ACCOUNT_ID }}
+          APP_ID: ${{ vars.HALO_FIREBASE_APP_ID }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const stripeAccount = process.env.STRIPE_ACCOUNT_ID;
+          if (!/^acct_[a-zA-Z0-9]+$/.test(stripeAccount || '')) {
+            throw new Error('Set the verified Rothcross Stripe account ID before deploying.');
+          }
+          const stagingUrl = `https://${process.env.PROJECT_ID}.web.app`;
+          fs.writeFileSync(`functions/.env.${process.env.PROJECT_ID}`, [
+            `HALO_SITE_URL=${stagingUrl}`,
+            `HALO_CHECKOUT_ALLOWED_ORIGINS=${stagingUrl}`,
+            `ROTHCROSS_STRIPE_ACCOUNT_ID=${stripeAccount}`,
+            ''
+          ].join('\n'));
+          const firebase = JSON.parse(fs.readFileSync('firebase.json', 'utf8'));
+          firebase.hosting.site = process.env.PROJECT_ID;
+          fs.writeFileSync('firebase.json', JSON.stringify(firebase, null, 2));
+          const config = {
+            apiKey: process.env.API_KEY,
+            authDomain: process.env.AUTH_DOMAIN,
+            projectId: process.env.PROJECT_ID,
+            storageBucket: process.env.STORAGE_BUCKET,
+            messagingSenderId: process.env.MESSAGING_SENDER_ID,
+            appId: process.env.APP_ID
+          };
+          if (Object.values(config).some(value => !value) || config.authDomain !== `${config.projectId}.firebaseapp.com` ||
+              !config.appId.startsWith(`1:${config.messagingSenderId}:web:`)) {
+            throw new Error('Complete the HALO staging Firebase web configuration before deploying.');
+          }
+          fs.writeFileSync('firebase-config.js', `window.HALO_FIREBASE_CONFIG = ${JSON.stringify(config)};\nwindow.HALO_ADMIN_EMAILS = ['ayojason600@gmail.com'];\n`);
+          NODE
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - name: Deploy only to the configured HALO staging project
+        env:
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+        run: npx --yes firebase-tools@13.35.1 deploy --only hosting,functions,firestore:rules --project "$PROJECT_ID" --non-interactive

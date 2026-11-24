@@ -1,8 +1,10 @@
 /** Halo-only delivery configuration. Never place Circum secrets in this file. */
 window.HALO_DELIVERY_CONFIG = {
   serviceAreaEndpoint: '',
-  paymentSuccessEndpoint: '',
-  adminOrdersEndpoint: '',
+  checkoutSessionEndpoint: '/api/createCheckoutSession',
+  checkoutStatusEndpoint: '/api/getCheckoutStatus',
+  adminOrdersEndpoint: '/api/adminOrders',
+  circumCheckoutEnabled: false,
   postcodeLookupEndpoint: 'https://api.postcodes.io/postcodes/',
   previewSupportedRegions: ['London'],
 

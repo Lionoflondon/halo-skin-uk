@@ -34,10 +34,10 @@ Admin writes are protected by `firestore.rules` and restricted to the verified H
 
 ## Delivery methods
 
-- **⚡ Circum Same Day — £4.99:** available only when the configured service-area checker confirms the address. Includes live tracking, proof of delivery and delivery notifications.
+- **⚡ Circum Same Day — £4.99:** preview eligibility checks exist, but secure checkout keeps this option disabled until server-side quotes, eligibility and delivery adapters are connected. Live tracking, proof of delivery and delivery notifications are not yet verified end to end.
 - **📦 Standard Delivery — £2.99:** nationwide Halo standard fulfilment.
 
-`delivery-config.js` defines the Halo-only public endpoints. The service-area endpoint must return `{ "eligible": true|false }`; postcode coverage is owned by that service and is not hardcoded in the storefront. The payment-success endpoint must invoke `fulfilPaidHaloOrder` from `server/halo-fulfilment.mjs` using the approved Halo Circum, standard-fulfilment, order-store and notification adapters. Circum creation is rejected unless payment is verified as `succeeded`.
+`delivery-config.js` defines the Halo-only endpoints. The checkout functions in `functions/` use Rothcross Stripe **test mode only**, require the expected Rothcross Stripe account ID, price products from the published Firestore catalogue, and persist separate `haloOrders`. Signed test webhooks confirm test payments and record refunds. Provision `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ROTHCROSS_STRIPE_ACCOUNT_ID`, `HALO_SITE_URL`, and allowed storefront origins in an isolated HALO staging project before using this flow. The browser never asserts payment success or supplies authoritative prices. The test payment endpoint currently accepts standard delivery only. Circum remains disabled at secure checkout until server-side eligibility and delivery adapters are configured. Paid orders are recorded as `status: paid` and `paymentStatus: paid`; dispatch remains a separate admin-managed step.
 
 Until the production Circum service-area endpoint is configured, the local preview resolves the entered postcode through `postcodes.io`, checks its returned region, and validates the entered city against the returned locality. No postcode list is hardcoded.
 
@@ -49,10 +49,15 @@ Run validation with `npm test`.
 
 The supplied campaign imagery is stored in `assets/`. Replace the image paths in `index.html` or the product records in `app.js` to update photography without changing the layout.
 
-## Production checklist
+## Production blockers
 
-- Point `haloskinuk.com` at the chosen static host.
-- Add legal pages, delivery policy and returns policy links.
-- Connect the newsletter form to your preferred mailing platform.
-- Add analytics and cookie consent for the chosen stack.
-- Connect a payment provider and order-processing backend before accepting live orders.
+- Payment code is implemented for test mode, but has not been deployed or exercised against an isolated Stripe test account. No live mode is supported.
+- Test-only refund initiation and webhook recording are implemented locally, but not hosted-tested. Full provider reconciliation and a financial exception workflow are not implemented.
+- The fulfilment helper is adapter based; no standard dispatch adapter, Circum server-side eligibility integration or payment-to-dispatch recovery worker is wired into the checkout functions.
+- The production Circum service-area endpoint is blank; the postcode lookup fallback is preview-only. Circum credentials, delivery status webhook verification and operational retry/reconciliation are not configured here.
+- Admin order and refund endpoints require recent Firebase MFA claims and the verified allowlisted email; HALO TOTP enrollment/claim behavior is unverified. Independent role management and credential rotation are not implemented.
+- Firestore rules protect the product catalogue. No backup schedule, restore evidence, monitoring/alerting, budget alerts, incident runbook or recovery objective is defined in this repository.
+- Hosting has no automated staging/release workflow, preview environment, rollback procedure, custom domain verification or deployment evidence in this repository.
+- Legal pages, delivery/returns policy, functioning newsletter processing, and analytics/cookie consent are not complete.
+
+These gaps must be closed and verified in an isolated staging project before any live payment activation or production deployment.

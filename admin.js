@@ -3,6 +3,9 @@ import {
   browserLocalPersistence,
   EmailAuthProvider,
   getAuth,
+  getMultiFactorResolver,
+  multiFactor,
+  TotpMultiFactorGenerator,
   GoogleAuthProvider,
   linkWithCredential,
   onAuthStateChanged,
@@ -252,22 +255,35 @@ function watchProducts() {
   });
 }
 
+function renderShippingDetails(details) {
+  if (!details) return '';
+  const lines = [details.name, details.line1, details.line2, details.city, details.region, details.postcode, details.country];
+  return `<details><summary>Delivery address</summary>${lines.filter(Boolean).map(escapeHtml).join('<br>')}</details>`;
+}
+
 async function loadOrders() {
   const tbody = $('#orders');
   const notice = $('#admin-notice');
   if (!deliveryConfig.adminOrdersEndpoint) return;
   notice.textContent = 'Loading Halo delivery data…';
   try {
-    const response = await fetch(deliveryConfig.adminOrdersEndpoint, { credentials: 'include' });
+    const user = auth.currentUser;
+    const token = await user?.getIdToken(true);
+    if (!token) throw new Error('Sign in again to continue.');
+    const response = await fetch(deliveryConfig.adminOrdersEndpoint, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const { orders = [] } = await response.json();
+    if (auth.currentUser !== user) return;
     tbody.innerHTML = orders.length ? orders.map(order => `<tr>
-      <td>${escapeHtml(order.orderNumber || order.id)}</td>
-      <td>${escapeHtml(order.customerName || order.customerEmail)}</td>
-      <td>${order.deliveryMethod === 'circum' ? '⚡ Circum Same Day' : '📦 Standard Delivery'}</td>
-      <td>${escapeHtml(order.circumDeliveryId || '—')}</td>
-      <td>${order.deliveryStatus ? `<span class="status">${escapeHtml(order.deliveryStatus)}</span>` : 'Halo fulfilment'}</td>
-      <td>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener">Track ↗</a>` : '—'}</td>
+      <td>${escapeHtml(order.id)}</td>
+      <td>${(order.items || []).map(item => `${escapeHtml(item.title)} × ${Number(item.quantity) || 0}`).join('<br>')}</td>
+      <td>${money(Number(order.totalPence) / 100)}${order.refundedPence ? `<br><small>${money(Number(order.refundedPence) / 100)} refunded</small>` : ''}</td>
+      <td><span class="status">${escapeHtml(order.status || 'pending')}</span></td>
+      <td>${escapeHtml(order.paymentStatus || 'pending')}</td>
+      <td>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener">Track ↗</a><br>` : ''}
+        ${renderShippingDetails(order.shippingDetails)}
+        <button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>
+        ${['paid', 'partially_refunded'].includes(order.paymentStatus) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}">Refund</button>` : ''}</td>
     </tr>`).join('') : '<tr><td colspan="6" class="empty">No orders found.</td></tr>';
     notice.textContent = `${orders.length} Halo order${orders.length === 1 ? '' : 's'} loaded.`;
   } catch (_) {
@@ -289,6 +305,7 @@ onAuthStateChanged(auth, async user => {
     return;
   }
   unsubscribeProducts?.();
+  $('#orders').replaceChildren();
   if (user) {
     message($('#login-message'), 'This Google account is not authorised for Halo Admin.', 'error');
     await signOut(auth);
@@ -346,7 +363,7 @@ $('#google-sign-in').addEventListener('click', async () => {
   button.disabled = true;
   message($('#login-message'), 'Opening secure Google sign-in…');
   try {
-    await signInWithPopup(auth, provider);
+    await completeAdminSignIn(() => signInWithPopup(auth, provider));
   } catch (error) {
     const needsSetup = ['auth/operation-not-allowed', 'auth/configuration-not-found'].includes(error.code);
     message(
@@ -369,13 +386,50 @@ $('#email-sign-in-form').addEventListener('submit', async event => {
   button.disabled = true;
   message($('#login-message'), 'Signing in securely…');
   try {
-    await signInWithEmailAndPassword(auth, email, password);
+    await completeAdminSignIn(() => signInWithEmailAndPassword(auth, email, password));
     $('#admin-password').value = '';
   } catch (error) {
     const friendlyMessage = error.code === 'auth/too-many-requests'
       ? 'Too many attempts. Wait a moment or reset your password.'
       : 'The email or password was not recognised.';
     message($('#login-message'), friendlyMessage, 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function completeAdminSignIn(signIn) {
+  try {
+    return await signIn();
+  } catch (error) {
+    if (error.code !== 'auth/multi-factor-auth-required') throw error;
+    const resolver = getMultiFactorResolver(auth, error);
+    const hint = resolver.hints.find(factor => factor.factorId === TotpMultiFactorGenerator.FACTOR_ID);
+    if (!hint) throw new Error('No supported authenticator is enrolled.');
+    const code = window.prompt('Enter the six-digit code from your authenticator app.')?.trim();
+    if (!/^\d{6}$/.test(code || '')) throw new Error('Enter a valid authenticator code.');
+    return resolver.resolveSignIn(TotpMultiFactorGenerator.assertionForSignIn(hint.uid, code));
+  }
+}
+
+$('#enrol-authenticator').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  const feedback = $('#authenticator-message');
+  const user = auth.currentUser;
+  if (!isAllowedAdmin(user)) return;
+  button.disabled = true;
+  try {
+    const session = await multiFactor(user).getSession();
+    const secret = await TotpMultiFactorGenerator.generateSecret(session);
+    const code = window.prompt(
+      'Add a time-based account to your authenticator using this setup key, then enter its six-digit code: ' + secret.secretKey
+    )?.trim();
+    if (!/^\d{6}$/.test(code || '')) throw new Error('Setup cancelled or invalid code.');
+    await multiFactor(user).enroll(TotpMultiFactorGenerator.assertionForEnrollment(secret, code), 'HALO admin');
+    await signOut(auth);
+    message($('#login-message'), 'Authenticator enrolled. Sign in again using your code.', 'success');
+  } catch (_) {
+    message(feedback, 'Authenticator setup did not finish. Sign in again and check that staging supports MFA.', 'error');
   } finally {
     button.disabled = false;
   }
@@ -405,6 +459,36 @@ $('#product-form').addEventListener('submit', saveProduct);
 $('#reset-product').addEventListener('click', resetProductForm);
 $('#import-products').addEventListener('click', importStarterProducts);
 $('#refresh').addEventListener('click', loadOrders);
+$('#orders').addEventListener('click', async event => {
+  const statusButton = event.target.closest('[data-order-status]');
+  const refundButton = event.target.closest('[data-order-refund]');
+  const orderId = statusButton?.dataset.orderStatus || refundButton?.dataset.orderRefund;
+  if (!orderId) return;
+  const token = await auth.currentUser?.getIdToken(true);
+  if (!token) return message($('#admin-notice'), 'Sign in again to continue.', 'error');
+  try {
+    if (statusButton) {
+      const status = window.prompt('Next status: processing, dispatched, delivered or cancelled');
+      if (!status) return;
+      const reason = window.prompt('Reason for this status change');
+      if (!reason) return;
+      const trackingUrl = status === 'dispatched' ? window.prompt('Secure tracking URL') : undefined;
+      const response = await fetch('/api/updateHaloOrder', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, status, reason, trackingUrl }) });
+      if (!response.ok) throw new Error((await response.json()).message || 'Order status could not be changed.');
+    } else {
+      const amount = window.prompt('Refund amount in pounds (for example 12.50)');
+      if (amount === null) return;
+      const amountPence = Math.round(Number(amount) * 100);
+      const reason = window.prompt('Reason for this refund');
+      if (!Number.isSafeInteger(amountPence) || amountPence < 1 || !reason) throw new Error('Enter a positive refund amount and reason.');
+      const response = await fetch('/api/requestHaloRefund', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ orderId, amountPence, reason }) });
+      if (!response.ok) throw new Error((await response.json()).message || 'Refund could not be requested.');
+    }
+    await loadOrders();
+  } catch (error) {
+    message($('#admin-notice'), error.message || 'Order action could not be completed.', 'error');
+  }
+});
 $('#product-image-url').addEventListener('input', event => previewImage(event.target.value.trim() || editingImage));
 $('#product-image-file').addEventListener('change', event => {
   const file = event.target.files[0];

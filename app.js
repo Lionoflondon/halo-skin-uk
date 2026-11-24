@@ -9,7 +9,7 @@ const demoProducts = [
     price: 18,
     badge: 'Bestseller',
     number: '01',
-    image: 'assets/halo-pink-botanical.jpg',
+    image: 'assets/halo-pink-botanical-clean-v2.jpg',
     alt: 'Halo clear peptide lip treatment among flowers and river stones'
   },
   {
@@ -22,7 +22,7 @@ const demoProducts = [
     price: 18,
     badge: 'New',
     number: '02',
-    image: 'assets/halo-lifestyle.jpg',
+    image: 'assets/halo-lifestyle-clean-v2.jpg',
     alt: 'Halo pink peptide lip tint'
   },
   {
@@ -35,7 +35,7 @@ const demoProducts = [
     price: 18,
     badge: '',
     number: '03',
-    image: 'assets/halo-trio-blue.jpg',
+    image: 'assets/halo-trio-blue-clean-v2.jpg',
     alt: 'Halo cocoa rose peptide lip tint'
   },
   {
@@ -48,7 +48,7 @@ const demoProducts = [
     price: 48,
     badge: 'Save £6',
     number: '04',
-    image: 'assets/halo-trio-warm.jpg',
+    image: 'assets/halo-trio-warm-clean-v2.jpg',
     alt: 'The Halo lip trio in three everyday shades'
   }
 ];
@@ -60,10 +60,14 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"]/g, character => 
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'
 }[character]));
 
+function updatedImageUrl(url) {
+  return String(url || '').replace(/(halo-(?:pink-botanical|lifestyle|trio-blue|trio-warm|model-blue))\.jpg(?=$|[?#])/, '$1-clean-v2.jpg');
+}
+
 function savedCart() {
   try {
     const value = JSON.parse(localStorage.getItem('halo_cart') || '[]');
-    return Array.isArray(value) ? value : [];
+    return Array.isArray(value) ? value.map(item => ({ ...item, image: updatedImageUrl(item.image) })) : [];
   } catch (_) {
     return [];
   }
@@ -109,7 +113,7 @@ function normaliseManagedProduct(id, data) {
     price: Number(data.price) || 0,
     badge: data.badge || '',
     number: data.number || '',
-    image: data.image || '',
+    image: updatedImageUrl(data.image),
     alt: data.alt || data.title || 'Halo product',
     available: data.available !== false,
     published: data.published === true,
@@ -343,6 +347,13 @@ async function refreshCircumEligibility() {
   if (!circum || !standard || !message || !window.HaloDelivery) return;
   const sequence = ++areaCheckSequence;
   message.className = 'service-area-message';
+  if (window.HALO_DELIVERY_CONFIG?.circumCheckoutEnabled !== true) {
+    circum.disabled = true;
+    message.textContent = 'Circum Same Day is not available at secure checkout yet. Choose Standard Delivery.';
+    if (circum.checked) standard.checked = true;
+    renderCheckoutTotals();
+    return;
+  }
   if (!address.address || !address.city || !address.postcode) {
     circum.disabled = true;
     message.textContent = 'Enter your address, city and postcode to check Circum Same Day availability.';
@@ -462,11 +473,42 @@ function bindInteractions() {
   });
   $('#checkout-form [name="country"]')?.addEventListener('change', refreshCircumEligibility);
   $('#checkout-button')?.addEventListener('click', openCheckout);
-  $('#checkout-form')?.addEventListener('submit', event => {
+  $('#checkout-form')?.addEventListener('submit', async event => {
     event.preventDefault();
-    const method = selectedDeliveryMethod();
-    const delivery = window.HaloDelivery?.METHODS?.[method];
-    if (delivery) toast(`${delivery.label} selected. Continue with secure payment`);
+    const message = $('#checkout-payment-message');
+    const endpoint = window.HALO_DELIVERY_CONFIG?.checkoutSessionEndpoint;
+    if (!endpoint) {
+      if (message) message.textContent = 'Secure checkout is not available yet. No order or payment has been taken.';
+      return;
+    }
+    const button = $('#checkout-submit');
+    if (button) button.disabled = true;
+    if (message) message.textContent = 'Opening secure Stripe checkout…';
+    try {
+      const payload = JSON.stringify({
+        items: cart.map(item => ({ id: item.id, variantId: item.variantId, quantity: item.quantity })),
+        email: $('#checkout-form [name="email"]')?.value.trim(),
+        deliveryMethod: selectedDeliveryMethod()
+      });
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+      const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const storageKey = `halo_checkout_request:${fingerprint}`;
+      const requestKey = sessionStorage.getItem(storageKey) || crypto.randomUUID();
+      sessionStorage.setItem(storageKey, requestKey);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey },
+        body: payload
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || typeof result.url !== 'string' || !result.url.startsWith('https://checkout.stripe.com/')) {
+        throw new Error(result.message || 'Secure checkout is temporarily unavailable. Please try again.');
+      }
+      window.location.assign(result.url);
+    } catch (error) {
+      if (message) message.textContent = error.message || 'Secure checkout is temporarily unavailable. Please try again.';
+      if (button) button.disabled = false;
+    }
   });
   $('[data-checkout-close]')?.addEventListener('click', () => $('#checkout-modal')?.close());
 

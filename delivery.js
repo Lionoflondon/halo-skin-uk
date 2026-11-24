@@ -20,11 +20,5 @@
     }
     return { eligible: false, reason: 'checker-not-configured' };
   }
-  async function handleVerifiedPayment(payment, order) {
-    if (!payment || payment.status !== 'succeeded' || !payment.id) throw new Error('A verified successful payment is required');
-    const cfg = config();
-    if (!cfg.paymentSuccessEndpoint) throw new Error('Halo payment-success endpoint is not configured');
-    return postJson(cfg.paymentSuccessEndpoint, { paymentId: payment.id, order });
-  }
-  window.HaloDelivery = { METHODS, checkServiceArea, handleVerifiedPayment };
+  window.HaloDelivery = { METHODS, checkServiceArea };
 })();
