@@ -12,6 +12,7 @@ const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, par
 const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
+const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
 
 initializeApp();
 const db = getFirestore();
@@ -51,6 +52,53 @@ async function assertRothcrossStripeAccount(stripe) {
   const account = await stripe.accounts.retrieve();
   assertStripeAccountId(expected, account.id);
 }
+function inventoryMovementRef(orderId, productId) {
+  return db.collection('haloInventoryMovements').doc(hash(`${orderId}:${productId}`).slice(0, 32));
+}
+async function commitReservedInventory(transaction, orderRef, order) {
+  if (order.inventoryStatus !== 'reserved') return {};
+  const productRefs = order.items.map(item => db.collection('products').doc(item.id));
+  const movementRefs = order.items.map(item => inventoryMovementRef(orderRef.id, item.id));
+  const snapshots = await Promise.all([...productRefs, ...movementRefs].map(ref => transaction.get(ref)));
+  const productSnapshots = snapshots.slice(0, productRefs.length);
+  const movementSnapshots = snapshots.slice(productRefs.length);
+  if (productSnapshots.some((snapshot, index) => !snapshot.exists ||
+      !Number.isSafeInteger(snapshot.data().reservedQuantity) || snapshot.data().reservedQuantity < order.items[index].quantity) ||
+      movementSnapshots.some(snapshot => !snapshot.exists || snapshot.data().status !== 'reserved')) {
+    throw new Error('HALO inventory reservation is inconsistent.');
+  }
+  order.items.forEach((item, index) => {
+    transaction.update(productRefs[index], {
+      reservedQuantity: productSnapshots[index].data().reservedQuantity - item.quantity,
+      inventoryUpdatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(movementRefs[index], { status: 'sold', committedAt: FieldValue.serverTimestamp() });
+  });
+  return { inventoryStatus: 'committed' };
+}
+async function releaseReservedInventory(transaction, orderRef, order, reason) {
+  if (order.inventoryStatus !== 'reserved') return {};
+  const productRefs = order.items.map(item => db.collection('products').doc(item.id));
+  const movementRefs = order.items.map(item => inventoryMovementRef(orderRef.id, item.id));
+  const snapshots = await Promise.all([...productRefs, ...movementRefs].map(ref => transaction.get(ref)));
+  const productSnapshots = snapshots.slice(0, productRefs.length);
+  const movementSnapshots = snapshots.slice(productRefs.length);
+  if (productSnapshots.some(snapshot => !snapshot.exists) ||
+      movementSnapshots.some(snapshot => !snapshot.exists || snapshot.data().status !== 'reserved')) {
+    throw new Error('HALO inventory reservation is inconsistent; reconcile stock before release.');
+  }
+  order.items.forEach((item, index) => {
+    const product = productSnapshots[index].data();
+    const released = releaseInventory(product, item.quantity);
+    transaction.update(productRefs[index], {
+      ...released, inventoryUpdatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(movementRefs[index], {
+      status: 'released', reason, releasedAt: FieldValue.serverTimestamp()
+    });
+  });
+  return { inventoryStatus: 'released' };
+}
 function sendError(response, status, code, message) {
   response.set('Cache-Control', 'no-store').status(status).json({ error: code, message });
 }
@@ -71,6 +119,7 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
   if (request.method === 'OPTIONS') return response.status(204).end();
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to begin checkout.');
   let orderRef;
+  let items;
   try {
     await requireAppCheck(request);
     const requestKey = request.get('idempotency-key') || '';
@@ -94,25 +143,63 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
     // Circum eligibility and delivery creation require a verified server-side
     // integration; the browser postcode checker is not trusted for payment.
     if (deliveryMethod !== 'standard') return sendError(response, 422, 'delivery_unavailable', 'This delivery option is not available at secure checkout yet.');
-    const catalogue = await db.collection('products').where('published', '==', true).get();
-    const products = catalogue.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const items = parseCart(request.body?.items, products);
-    const subtotalPence = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
-    if (!Number.isSafeInteger(subtotalPence) || subtotalPence > 2_000_000) return sendError(response, 422, 'basket_limit', 'Basket total is outside the allowed limit.');
-    const fingerprint = checkoutFingerprint({ items, email, deliveryMethod, customerUid });
+    const requestItems = request.body?.items;
+    if (!Array.isArray(requestItems) || requestItems.length < 1 || requestItems.length > 20 ||
+        requestItems.some(item => !/^[a-z0-9][a-z0-9-]{0,99}$/.test(String(item?.id || '')))) {
+      return sendError(response, 422, 'invalid_basket', 'Basket is invalid. Refresh the catalogue and try again.');
+    }
+    const productIds = requestItems.map(item => String(item.id));
+    if (new Set(productIds).size !== productIds.length) return sendError(response, 422, 'invalid_basket', 'Basket contains repeated products. Refresh and try again.');
     const orderId = hash(requestKey).slice(0, 32);
     orderRef = db.collection('haloOrders').doc(orderId);
     await db.runTransaction(async transaction => {
       const existing = await transaction.get(orderRef);
-      if (existing.exists && existing.data().requestFingerprint !== fingerprint) throw new Error('This checkout key was already used for another basket.');
-      if (!existing.exists) transaction.create(orderRef, {
+      if (existing.exists) {
+        const order = existing.data();
+        const existingFingerprint = checkoutFingerprint({ items: order.items || [], email, deliveryMethod, customerUid });
+        const requested = requestItems.map(item => ({ id: String(item.id), variantId: String(item.variantId || ''), quantity: Number(item.quantity) }));
+        const stored = (order.items || []).map(item => ({ id: item.id, variantId: item.variantId, quantity: item.quantity }));
+        if (order.requestFingerprint !== existingFingerprint || JSON.stringify(requested) !== JSON.stringify(stored)) {
+          throw new Error('This checkout key was already used for another basket.');
+        }
+        if (order.inventoryStatus !== 'reserved' || ['abandoned', 'failed'].includes(order.paymentStatus)) {
+          throw new Error('This checkout attempt has ended. Refresh checkout to start a new attempt.');
+        }
+        items = order.items;
+        return;
+      }
+      const productRefs = productIds.map(id => db.collection('products').doc(id));
+      const productSnapshots = await Promise.all(productRefs.map(ref => transaction.get(ref)));
+      const products = productSnapshots.map((snapshot, index) => ({ id: productIds[index], ...(snapshot.exists ? snapshot.data() : {}) }));
+      items = parseCart(requestItems, products);
+      const subtotal = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
+      if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000) throw new Error('Basket total is outside the allowed limit.');
+      const reservations = reserveInventory(products, items);
+      const movementRefs = items.map(item => inventoryMovementRef(orderId, item.id));
+      const priorMovements = await Promise.all(movementRefs.map(ref => transaction.get(ref)));
+      if (priorMovements.some(snapshot => snapshot.exists)) throw new Error('Inventory reservation already exists; refresh checkout.');
+      reservations.forEach((reservation, index) => {
+        transaction.update(productRefs[index], {
+          stockQuantity: reservation.stockQuantityAfter,
+          reservedQuantity: reservation.reservedQuantityAfter,
+          inventoryUpdatedAt: FieldValue.serverTimestamp()
+        });
+        transaction.create(movementRefs[index], {
+          type: 'checkout_reservation', status: 'reserved', orderId, productId: reservation.id,
+          quantity: reservation.quantity, brand: 'HALO', reservedAt: FieldValue.serverTimestamp()
+        });
+      });
+      const fingerprint = checkoutFingerprint({ items, email, deliveryMethod, customerUid });
+      transaction.create(orderRef, {
         brand: 'HALO', status: 'pending_payment', paymentStatus: 'pending', currency: 'GBP',
-        items, subtotalPence, deliveryPence: STANDARD_DELIVERY_PENCE,
-        totalPence: subtotalPence + STANDARD_DELIVERY_PENCE,
+        items, subtotalPence: subtotal, deliveryPence: STANDARD_DELIVERY_PENCE,
+        totalPence: subtotal + STANDARD_DELIVERY_PENCE,
         customerEmail: email, customerUid, deliveryMethod, requestFingerprint: fingerprint,
-        createdAt: FieldValue.serverTimestamp()
+        inventoryStatus: 'reserved', createdAt: FieldValue.serverTimestamp()
       });
     });
+    const subtotalPence = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
+    if (!Number.isSafeInteger(subtotalPence) || subtotalPence > 2_000_000) return sendError(response, 422, 'basket_limit', 'Basket total is outside the allowed limit.');
     const order = (await orderRef.get()).data();
     const stripe = stripeClient();
     await assertRothcrossStripeAccount(stripe);
@@ -137,7 +224,20 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
     response.set('Cache-Control', 'no-store').status(200).json({ url: session.url, orderId });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    sendError(response, error instanceof AppCheckAccessError ? 403 : /basket|item|price|email|delivery|checkout key|allowed limit/i.test(message) ? 422 : 503,
+    if (orderRef && items) {
+      try {
+        await db.runTransaction(async transaction => {
+          const snapshot = await transaction.get(orderRef);
+          if (!snapshot.exists) return;
+          const order = snapshot.data();
+          if (!order.stripeSessionId && order.inventoryStatus === 'reserved') {
+            const inventoryPatch = await releaseReservedInventory(transaction, orderRef, order, 'checkout_setup_failed');
+            transaction.update(orderRef, { ...inventoryPatch, paymentStatus: 'failed', updatedAt: FieldValue.serverTimestamp() });
+          }
+        });
+      } catch (_) { /* Preserve the primary checkout failure; an unresolved reservation remains visible for admin review. */ }
+    }
+    sendError(response, error instanceof AppCheckAccessError ? 403 : /basket|item|price|email|delivery|checkout key|allowed limit|stock|inventory/i.test(message) ? 422 : 503,
       'checkout_unavailable', message || 'Secure checkout is temporarily unavailable.');
   }
 });
@@ -260,6 +360,53 @@ exports.requestHaloRefund = onRequest({ region, invoker: 'public', maxInstances:
   }
 });
 
+exports.setHaloStockCount = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to record a HALO stock count.');
+  try {
+    const admin = await requireHaloAdmin(request);
+    const productId = String(request.body?.productId || '');
+    const physicalCount = request.body?.physicalCount;
+    const reason = String(request.body?.reason || '').trim().slice(0, 240);
+    const requestKey = request.get('idempotency-key') || '';
+    if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(productId) || typeof physicalCount !== 'number' ||
+        !Number.isSafeInteger(physicalCount) || physicalCount < 0 || reason.length < 3 ||
+        requestKey.length < 16 || requestKey.length > 128) {
+      return sendError(response, 422, 'invalid_stock_count', 'Provide a product, verified whole-unit count, reason and idempotency key.');
+    }
+    const productRef = db.collection('products').doc(productId);
+    const movementRef = db.collection('haloInventoryMovements').doc(`count_${hash(requestKey).slice(0, 32)}`);
+    const result = await db.runTransaction(async transaction => {
+      const [movementSnapshot, productSnapshot] = await Promise.all([
+        transaction.get(movementRef), transaction.get(productRef)
+      ]);
+      if (movementSnapshot.exists) return { ...movementSnapshot.data().result, duplicate: true };
+      if (!productSnapshot.exists) throw new Error('HALO product was not found.');
+      const product = productSnapshot.data();
+      const reservedQuantity = product.reservedQuantity ?? 0;
+      const adjustment = inventoryCountAdjustment(product.stockQuantity ?? null, reservedQuantity, physicalCount);
+      const recordedAt = FieldValue.serverTimestamp();
+      const responseData = {
+        productId, physicalCount: adjustment.physicalCount, availableQuantity: adjustment.availableQuantity,
+        reservedQuantity, previousPhysicalCount: adjustment.previousPhysicalCount, delta: adjustment.delta
+      };
+      transaction.update(productRef, {
+        stockQuantity: adjustment.availableQuantity, reservedQuantity,
+        inventoryCountedAt: recordedAt, inventoryCountedBy: admin.uid, inventoryUpdatedAt: recordedAt
+      });
+      transaction.create(movementRef, {
+        type: 'physical_stock_count', status: 'recorded', brand: 'HALO', productId,
+        ...responseData, reason, actorUid: admin.uid, actorEmail: admin.email,
+        createdAt: recordedAt, result: responseData
+      });
+      return responseData;
+    });
+    response.set('Cache-Control', 'no-store').status(200).json(result);
+  } catch (error) {
+    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 422,
+      'stock_count_failed', error.message || 'HALO stock count could not be saved.');
+  }
+});
+
 exports.getCheckoutStatus = onRequest({ region, invoker: 'public', maxInstances: 3, secrets: [stripeSecret] }, async (request, response) => {
   if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
   if (request.method === 'OPTIONS') return response.status(204).end();
@@ -286,8 +433,9 @@ exports.getCheckoutStatus = onRequest({ region, invoker: 'public', maxInstances:
         if (!orderSnapshot.exists) return;
         const current = orderSnapshot.data();
         if (current.stripeSessionId !== session.id || current.paymentStatus !== 'pending') return;
+        const inventoryPatch = await releaseReservedInventory(transaction, orderRef, { id: orderRef.id, ...current }, 'checkout_session_expired');
         if (!eventSnapshot.exists) transaction.create(eventRef, { type: 'checkout.session.expired', orderId: session.metadata.orderId, status: 'processed_by_status_check', createdAt: FieldValue.serverTimestamp() });
-        transaction.update(orderRef, { paymentStatus: 'abandoned', updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(orderRef, { ...inventoryPatch, paymentStatus: 'abandoned', updatedAt: FieldValue.serverTimestamp() });
       });
       paymentState = 'abandoned';
     }
@@ -329,6 +477,10 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
         const order = orderSnapshot.data();
         const update = stripeEventOrderUpdate({ id: orderId, ...order }, event);
         const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.status === 'paid'
+          ? await commitReservedInventory(transaction, orderRef, order)
+          : {};
+        Object.assign(patch, inventoryPatch);
         if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp(), ...(patch.status === 'paid' ? { paidAt: FieldValue.serverTimestamp() } : {}) });
         transaction.create(eventRef, { type: event.type, orderId, status: eventStatus, createdAt: FieldValue.serverTimestamp() });
       });
@@ -347,6 +499,10 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
         const order = { id: orderId, ...orderSnapshot.data() };
         const update = stripeEventOrderUpdate(order, event);
         const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.paymentStatus === 'abandoned'
+          ? await releaseReservedInventory(transaction, orderRef, order, 'checkout_session_expired')
+          : {};
+        Object.assign(patch, inventoryPatch);
         if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
         transaction.create(eventRef, { type: event.type, orderId, status: eventStatus, createdAt: FieldValue.serverTimestamp() });
       });

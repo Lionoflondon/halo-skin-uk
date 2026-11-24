@@ -25,6 +25,7 @@ Open `/admin` to manage products without editing code. The Products section supp
 - prices, categories, badges and storefront order;
 - published/draft status;
 - available/sold-out status;
+- audited physical stock counts, available and reserved quantities;
 - deleting products;
 - importing the four current storefront products into Firestore.
 
@@ -38,6 +39,8 @@ Admin writes are protected by `firestore.rules` and restricted to the verified H
 - **📦 Standard Delivery — £2.99:** nationwide Halo standard fulfilment.
 
 `delivery-config.js` defines the Halo-only endpoints. The checkout functions in `functions/` use Rothcross Stripe **test mode only**, require the expected Rothcross Stripe account ID, price products from the published Firestore catalogue, and persist separate `haloOrders`. Signed test webhooks confirm test payments and record refunds. Provision `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ROTHCROSS_STRIPE_ACCOUNT_ID`, `HALO_SITE_URL`, and allowed storefront origins in an isolated HALO staging project before using this flow. The browser never asserts payment success or supplies authoritative prices. The test payment endpoint currently accepts standard delivery only. Circum remains disabled at secure checkout until server-side eligibility and delivery adapters are configured. Paid orders are recorded as `status: paid` and `paymentStatus: paid`; dispatch remains a separate admin-managed step.
+
+Checkout requires a physically recorded stock count and reserves units transactionally. A paid webhook commits the reservation; a verified expired Checkout Session releases it. Every count, reservation, sale and release is separately attributed to HALO in `haloInventoryMovements`. A refund does not automatically add units back to stock: inspect returned goods and record a new physical count.
 
 Until the production Circum service-area endpoint is configured, the local preview resolves the entered postcode through `postcodes.io`, checks its returned region, and validates the entered city against the returned locality. No postcode list is hardcoded.
 
@@ -56,7 +59,7 @@ The supplied campaign imagery is stored in `assets/`. Replace the image paths in
 - The fulfilment helper is adapter based; no standard dispatch adapter, Circum server-side eligibility integration or payment-to-dispatch recovery worker is wired into the checkout functions.
 - The production Circum service-area endpoint is blank; the postcode lookup fallback is preview-only. Circum credentials, delivery status webhook verification and operational retry/reconciliation are not configured here.
 - Admin order and refund endpoints require recent Firebase MFA claims and the verified allowlisted email; HALO TOTP enrollment/claim behavior is unverified. Independent role management and credential rotation are not implemented.
-- Firestore rules protect the product catalogue. No backup schedule, restore evidence, monitoring/alerting, budget alerts, incident runbook or recovery objective is defined in this repository.
+- Firestore rules protect the product catalogue and prevent direct client stock changes. The audited stock-count and checkout reservation paths are source-tested, but not hosted-tested. No backup schedule, restore evidence, monitoring/alerting, incident runbook or recovery objective is defined in this repository.
 - Hosting has no automated staging/release workflow, preview environment, rollback procedure, custom domain verification or deployment evidence in this repository.
 - Legal pages, delivery/returns policy, functioning newsletter processing, and analytics/cookie consent are not complete.
 

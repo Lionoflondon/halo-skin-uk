@@ -5,6 +5,7 @@ window.HALO_DELIVERY_CONFIG = {
   checkoutStatusEndpoint: '/api/getCheckoutStatus',
   customerOrdersEndpoint: '/api/customerOrders',
   adminOrdersEndpoint: '/api/adminOrders',
+  stockCountEndpoint: '/api/setHaloStockCount',
   circumCheckoutEnabled: false,
   postcodeLookupEndpoint: 'https://api.postcodes.io/postcodes/',
   previewSupportedRegions: ['London'],

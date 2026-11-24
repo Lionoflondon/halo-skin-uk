@@ -22,6 +22,7 @@ function parseCart(items, products) {
     const product = productById.get(id);
     const quantity = Number(line?.quantity);
     if (!product || product.published !== true || product.available === false ||
+        !Number.isSafeInteger(product.stockQuantity) || product.stockQuantity < quantity ||
         String(line?.variantId || '') !== String(product.variantId || `${id}-default`) ||
         !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 10 || seen.has(id)) {
       throw new Error('One or more basket items are unavailable. Refresh the catalogue and try again.');

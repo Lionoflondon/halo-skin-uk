@@ -208,7 +208,7 @@ async function loadCustomerOrders() {
 }
 
 function productCard(product) {
-  const soldOut = product.available === false;
+  const soldOut = product.available === false || !Number.isSafeInteger(product.stockQuantity) || product.stockQuantity < 1;
   return `<article class="product-card" data-product-id="${escapeHtml(product.id)}" data-product-type="${escapeHtml(product.type)}">
     <div class="product-image">
       ${product.badge ? `<span class="badge">${escapeHtml(product.badge)}</span>` : ''}
@@ -243,6 +243,8 @@ function normaliseManagedProduct(id, data) {
     alt: data.alt || data.title || 'Halo product',
     available: data.available !== false,
     published: data.published === true,
+    stockQuantity: Number.isSafeInteger(data.stockQuantity) ? data.stockQuantity : null,
+    reservedQuantity: Number.isSafeInteger(data.reservedQuantity) ? data.reservedQuantity : 0,
     sortOrder: Number(data.sortOrder) || 0
   };
 }
@@ -287,7 +289,7 @@ function renderProducts(filter = 'all') {
 
 function addToCart(variantId) {
   const product = products.find(item => item.variantId === variantId);
-  if (!product || product.available === false) return;
+  if (!product || product.available === false || !Number.isSafeInteger(product.stockQuantity) || product.stockQuantity < 1) return;
   const cartItem = cart.find(item => item.variantId === variantId);
   if (cartItem) cartItem.quantity += 1;
   else cart.push({ ...product, quantity: 1 });
@@ -634,6 +636,7 @@ function bindInteractions() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || typeof result.url !== 'string' || !result.url.startsWith('https://checkout.stripe.com/')) {
+        sessionStorage.removeItem(storageKey);
         throw new Error(result.message || 'Secure checkout is temporarily unavailable. Please try again.');
       }
       window.location.assign(result.url);

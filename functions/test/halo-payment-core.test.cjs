@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('../halo-payment-core');
 
 const products = [
-  { id: 'lip-01', variantId: 'v-01', title: 'Lip treatment', price: 18, published: true, available: true },
-  { id: 'lip-02', variantId: 'v-02', title: 'Lip tint', price: 18.5, published: true, available: true }
+  { id: 'lip-01', variantId: 'v-01', title: 'Lip treatment', price: 18, published: true, available: true, stockQuantity: 10 },
+  { id: 'lip-02', variantId: 'v-02', title: 'Lip tint', price: 18.5, published: true, available: true, stockQuantity: 10 }
 ];
 
 test('accepts only Stripe test/restricted test keys', () => {

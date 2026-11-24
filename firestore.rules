@@ -11,7 +11,15 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if resource.data.published == true || isHaloAdmin();
-      allow create, update, delete: if isHaloAdmin();
+      allow create: if isHaloAdmin()
+        && request.resource.data.stockQuantity == null
+        && request.resource.data.reservedQuantity == 0;
+      allow update: if isHaloAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['stockQuantity', 'reservedQuantity', 'inventoryCountedAt', 'inventoryCountedBy']);
+      allow delete: if isHaloAdmin()
+        && resource.data.stockQuantity == 0
+        && resource.data.reservedQuantity == 0;
     }
 
     match /{document=**} {

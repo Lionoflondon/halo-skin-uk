@@ -72,7 +72,8 @@
       { "source": "/api/customerOrders", "function": { "functionId": "customerOrders", "region": "europe-west2" } },
       { "source": "/api/adminOrders", "function": { "functionId": "adminOrders", "region": "europe-west2" } },
       { "source": "/api/updateHaloOrder", "function": { "functionId": "updateHaloOrder", "region": "europe-west2" } },
-      { "source": "/api/requestHaloRefund", "function": { "functionId": "requestHaloRefund", "region": "europe-west2" } }
+      { "source": "/api/requestHaloRefund", "function": { "functionId": "requestHaloRefund", "region": "europe-west2" } },
+      { "source": "/api/setHaloStockCount", "function": { "functionId": "setHaloStockCount", "region": "europe-west2" } }
     ]
   },
   "auth": {

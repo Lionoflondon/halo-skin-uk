@@ -145,10 +145,12 @@ function renderCatalogue() {
         <div class="status-row">
           <span class="pill ${product.published ? 'live' : ''}">${product.published ? 'Published' : 'Draft'}</span>
           <span class="pill ${product.available === false ? 'sold' : ''}">${product.available === false ? 'Sold out' : 'Available'}</span>
+          <span class="pill">${Number.isSafeInteger(product.stockQuantity) ? `${product.stockQuantity} available · ${Number(product.reservedQuantity) || 0} reserved` : 'Physical stock count required'}</span>
         </div>
       </div>
       <div class="product-actions">
         <button type="button" data-edit-product="${escapeHtml(product.id)}">Edit</button>
+        <button type="button" data-count-stock="${escapeHtml(product.id)}">Count stock</button>
         <button class="delete-product" type="button" data-delete-product="${escapeHtml(product.id)}">Delete</button>
       </div>
     </article>`).join('');
@@ -211,7 +213,11 @@ async function saveProduct(event) {
       published: $('#product-published').checked,
       updatedAt: serverTimestamp()
     };
-    if (!existingId) product.createdAt = serverTimestamp();
+    if (!existingId) {
+      product.stockQuantity = null;
+      product.reservedQuantity = 0;
+      product.createdAt = serverTimestamp();
+    }
     await setDoc(doc(database, 'products', id), product, { merge: true });
     message(productMessage, existingId ? 'Product updated.' : 'Product added to Halo.', 'success');
     setTimeout(resetProductForm, 650);
@@ -230,8 +236,11 @@ async function importStarterProducts() {
     const batch = writeBatch(database);
     starterProducts.forEach(product => {
       const { id, ...data } = product;
+      const inventoryDefaults = catalogue.some(existing => existing.id === id)
+        ? {} : { stockQuantity: null, reservedQuantity: 0 };
       batch.set(doc(database, 'products', id), {
         ...data,
+        ...inventoryDefaults,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       }, { merge: true });
@@ -534,6 +543,32 @@ $('#admin-products').addEventListener('click', event => {
   const deleteButton = event.target.closest('[data-delete-product]');
   if (editButton) fillProductForm(catalogue.find(product => product.id === editButton.dataset.editProduct));
   if (deleteButton) removeProduct(deleteButton.dataset.deleteProduct);
+});
+
+$('#admin-products').addEventListener('click', async event => {
+  const button = event.target.closest('[data-count-stock]');
+  if (!button) return;
+  const product = catalogue.find(item => item.id === button.dataset.countStock);
+  if (!product) return;
+  const count = window.prompt(`Enter the physically counted units of ${product.title} on hand. This includes any units reserved by open checkouts.`);
+  if (count === null) return;
+  const physicalCount = Number(count);
+  const reason = window.prompt('Record the stocktake source or reason (for example, warehouse count and date).');
+  if (!Number.isSafeInteger(physicalCount) || physicalCount < 0 || !reason?.trim()) {
+    return message($('#product-message'), 'Enter a whole non-negative stock count and a stocktake reason.', 'error');
+  }
+  try {
+    const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() });
+    const response = await fetch(deliveryConfig.stockCountEndpoint || '/api/setHaloStockCount', {
+      method: 'POST', headers,
+      body: JSON.stringify({ productId: product.id, physicalCount, reason: reason.trim() })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || 'Stock count could not be saved.');
+    message($('#product-message'), `Stock count saved: ${physicalCount} on hand, ${result.availableQuantity} available and ${result.reservedQuantity} reserved.`, 'success');
+  } catch (error) {
+    message($('#product-message'), error.message || 'Stock count could not be saved.', 'error');
+  }
 });
 $$('.admin-tab').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.adminTab)));
 
