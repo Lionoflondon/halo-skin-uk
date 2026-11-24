@@ -138,9 +138,14 @@ exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 
   if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to view your HALO orders.');
   const bearer = /^Bearer (.+)$/.exec(request.get('authorization') || '');
   if (!bearer) return sendError(response, 401, 'sign_in_required', 'Sign in to view your HALO orders.');
+  let identity;
   try {
-    const identity = await getAuth().verifyIdToken(bearer[1], true);
-    if (identity.email_verified !== true) return sendError(response, 403, 'email_verification_required', 'Verify your account email to view order history.');
+    identity = await getAuth().verifyIdToken(bearer[1], true);
+  } catch (_) {
+    return sendError(response, 401, 'sign_in_required', 'Your session has expired. Sign in again to view your orders.');
+  }
+  if (identity.email_verified !== true) return sendError(response, 403, 'email_verification_required', 'Verify your account email to view order history.');
+  try {
     const snapshot = await db.collection('haloOrders').where('customerUid', '==', identity.uid).orderBy('createdAt', 'desc').limit(50).get();
     const orders = snapshot.docs
       .map(document => customerOrderSummary(document.id, document.data()))
@@ -148,7 +153,7 @@ exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 
       .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
     response.set('Cache-Control', 'no-store').status(200).json({ orders });
   } catch (_) {
-    sendError(response, 401, 'sign_in_required', 'Your session has expired. Sign in again to view your orders.');
+    sendError(response, 503, 'orders_unavailable', 'Your order history is temporarily unavailable. Try again shortly.');
   }
 });
 

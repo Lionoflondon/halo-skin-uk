@@ -145,7 +145,7 @@ function renderCustomerAccount() {
     if (email && verified) email.value = customerAuthUser.email || '';
   }
   const openButton = $('[data-account-open]');
-  if (openButton) openButton.textContent = verified ? 'Account' : 'Sign in';
+  if (openButton) openButton.textContent = verified ? 'Account' : signedIn ? 'Verify email' : 'Sign in';
 }
 
 function renderCustomerOrders(orders) {
