@@ -2,10 +2,11 @@
 
 ## Latest source verification — 24 November 2026
 
-- Source branch: `codex/halo-stage4`, commit `afa75628e4ee91931dd2481dd45e2494d89736eb`.
-- GitHub Actions `HALO checks` for that commit completed successfully: [run 45392713103](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45392713103).
-- The local suite passes 18 tests: 4 fulfilment tests and 14 payment/order tests. These are code-level checks, not hosted payment acceptance.
+- Source branch: `codex/halo-stage4`, commit `5ab59816e959f1d0e9fa0f5a22480908f7b2fc4a`.
+- GitHub Actions `HALO checks` for that commit completed successfully: [run 45395207770](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45395207770).
+- The local suite passes 20 tests: 4 fulfilment tests and 16 payment, order and customer-history tests. These are code-level checks, not hosted payment or authentication acceptance.
 - Rothcross owns one Stripe account used across CORPVS CHRISTI, HALO and its other brands. HALO checkout stores `halo` brand/store metadata, and refund processing now resolves the order from the matching PaymentIntent metadata instead of relying on charge metadata being copied. The webhook still rejects live-mode events and records only HALO orders in HALO's own `haloOrders` collection.
+- Customer account source now supports email/password registration, email verification, password reset, account-linked checkout and private order history. Customer order responses omit shipping addresses, email addresses and payment identifiers. Hosted Firebase Auth, sign-in, checkout linking and order-history behavior are not yet verified. Guest orders placed before a customer signs in cannot be linked to an account by this implementation.
 - Hosted payment, refund and reconciliation acceptance remains incomplete. On the last credential check, the HALO Stripe test key and HALO endpoint signing secret were absent from the GitHub `halo-staging` environment and HALO Secret Manager. Do not deploy the current Functions code until those HALO staging secrets are securely configured.
 - The most recent successful hosting probe returned HTTP 200 for the staging storefront and `/admin`. A subsequent probe could not resolve the staging hostname in the local network environment; it does not establish a hosting outage or a new successful probe.
 
@@ -29,4 +30,4 @@ HALO needs a pinned SDK distribution usable by its Functions build, the canonica
 
 ## Open launch gates
 
-CIRCUM server quotations and eligibility, dispatch and tracking, customer account and order history, notifications, inventory controls, hosted administrator MFA, recovery exercises, monitoring, App Check, accessibility and a protected release with rollback evidence remain open. All four skincare products remain on commercial hold under the compliance register.
+CIRCUM server quotations and eligibility, dispatch and tracking; hosted customer account and order-history acceptance; notifications; inventory controls; hosted administrator MFA; recovery exercises; monitoring; App Check; accessibility; and a protected release with rollback evidence remain open. All four skincare products remain on commercial hold under the compliance register.
