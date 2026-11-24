@@ -545,6 +545,7 @@ async function showStripeReturnStatus() {
   }
   const endpoint = window.HALO_DELIVERY_CONFIG?.checkoutStatusEndpoint;
   if (!endpoint) return;
+  let confirmed = false;
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -557,6 +558,7 @@ async function showStripeReturnStatus() {
       cart = [];
       localStorage.removeItem('halo_cart');
       renderCart();
+      confirmed = true;
       toast('Payment confirmed. HALO has received your order.');
     } else if (status.paymentStatus === 'abandoned') {
       toast('Checkout expired before payment completed.');
@@ -566,7 +568,7 @@ async function showStripeReturnStatus() {
   } catch (_) {
     toast('Payment is still being confirmed. Please check again shortly.');
   } finally {
-    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    if (confirmed || !navigator.onLine) window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
   }
 }
 
