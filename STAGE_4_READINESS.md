@@ -1,5 +1,14 @@
 # HALO Stage 4 evidence and remaining gates
 
+## Latest source verification — 24 November 2026
+
+- Source branch: `codex/halo-stage4`, commit `afa75628e4ee91931dd2481dd45e2494d89736eb`.
+- GitHub Actions `HALO checks` for that commit completed successfully: [run 45392713103](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45392713103).
+- The local suite passes 18 tests: 4 fulfilment tests and 14 payment/order tests. These are code-level checks, not hosted payment acceptance.
+- Rothcross owns one Stripe account used across CORPVS CHRISTI, HALO and its other brands. HALO checkout stores `halo` brand/store metadata, and refund processing now resolves the order from the matching PaymentIntent metadata instead of relying on charge metadata being copied. The webhook still rejects live-mode events and records only HALO orders in HALO's own `haloOrders` collection.
+- Hosted payment, refund and reconciliation acceptance remains incomplete. On the last credential check, the HALO Stripe test key and HALO endpoint signing secret were absent from the GitHub `halo-staging` environment and HALO Secret Manager. Do not deploy the current Functions code until those HALO staging secrets are securely configured.
+- The most recent successful hosting probe returned HTTP 200 for the staging storefront and `/admin`. A subsequent probe could not resolve the staging hostname in the local network environment; it does not establish a hosting outage or a new successful probe.
+
 ## Verified staging infrastructure
 
 - Project: `halo-skin-uk-stg` (309796789447), billing account display name Firebase Payment.
