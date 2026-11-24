@@ -321,7 +321,7 @@ async function loadFinancialReport() {
     $('#finance-entries').innerHTML = entries.length
       ? entries.map(entry => `<tr><td>${escapeHtml(entry.sourceType)} · ${escapeHtml(entry.sourceId)}</td><td>${escapeHtml(entry.orderId)}</td><td>${money(Number(entry.grossPence) / 100)}</td><td>${entry.feePence === null ? '—' : money(Number(entry.feePence) / 100)}</td><td>${entry.netPence === null ? '—' : money(Number(entry.netPence) / 100)}</td><td>${escapeHtml(entry.reconciliationStatus)}</td></tr>`).join('')
       : '<tr><td colspan="6" class="empty">No HALO Stripe transactions found.</td></tr>';
-    notice.textContent = `${result.reconciledCount} reconciled entries · ${result.pendingCount} pending balance transactions. Totals include reconciled entries only.`;
+    notice.textContent = `${result.reconciledCount} reconciled entries · ${result.pendingCount} pending balance transactions. ${result.complete ? 'Totals include all scanned HALO entries.' : `Only the first ${Number(result.scannedCount) || 0} ledger records were scanned; totals are incomplete.`} Reconciled totals exclude pending entries.`;
   } catch (error) {
     notice.textContent = error.message || 'HALO financial reconciliation could not be loaded.';
   }

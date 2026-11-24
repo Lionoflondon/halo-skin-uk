@@ -315,9 +315,27 @@ exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstanc
     await requireHaloAdmin(request);
     const stripe = stripeClient();
     await assertRothcrossStripeAccount(stripe);
-    const snapshot = await db.collection('haloFinancialEntries').orderBy('recordedAt', 'desc').limit(500).get();
-    const entries = snapshot.docs.map(document => ({ id: document.id, ...document.data() }))
-      .filter(entry => entry.brand === 'HALO' && entry.store === 'halo' && entry.stripeAccountId === expectedStripeAccountId.value());
+    const pageSize = 500;
+    const maximumScanned = 10000;
+    const entries = [];
+    let scannedCount = 0;
+    let cursor = null;
+    let complete = false;
+    while (scannedCount < maximumScanned) {
+      const requestedLimit = Math.min(pageSize, maximumScanned - scannedCount);
+      let query = db.collection('haloFinancialEntries').orderBy('recordedAt', 'desc').limit(requestedLimit);
+      if (cursor) query = query.startAfter(cursor);
+      const snapshot = await query.get();
+      const page = snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
+      scannedCount += snapshot.size;
+      entries.push(...page.filter(entry => entry.brand === 'HALO' && entry.store === 'halo' && entry.stripeAccountId === expectedStripeAccountId.value()));
+      if (snapshot.size < requestedLimit) {
+        complete = true;
+        break;
+      }
+      cursor = snapshot.docs[snapshot.docs.length - 1];
+      if (!cursor) { complete = true; break; }
+    }
     const reconciled = entries.filter(entry => entry.reconciliationStatus === 'reconciled' && entry.currency === 'GBP');
     const pending = entries.filter(entry => entry.reconciliationStatus !== 'reconciled' || entry.currency !== 'GBP');
     const recent = entries.slice(0, 100);
@@ -328,7 +346,7 @@ exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstanc
       return result;
     }, { grossPence: 0, feePence: 0, netPence: 0 });
     response.set('Cache-Control', 'no-store').status(200).json({
-      brand: 'HALO', stripeAccountId: expectedStripeAccountId.value(), currency: 'GBP',
+      brand: 'HALO', stripeAccountId: expectedStripeAccountId.value(), currency: 'GBP', complete, scannedCount,
       totals, reconciledCount: reconciled.length, pendingCount: pending.length,
       entries: recent.map(({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }) => ({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }))
     });
