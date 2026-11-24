@@ -2,8 +2,8 @@
 
 ## Latest source verification — 24 November 2026
 
-- Source branch: `codex/halo-stage4`, commit `80bf1ceae143dd70bd3aa467ea22f9abddde7bbb`.
-- GitHub Actions `HALO checks` for that commit completed successfully: [run 45396917313](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45396917313).
+- Source branch: `codex/halo-stage4`, commit `574f7d1ca603d950577086922dbae00f6d2eb838`.
+- GitHub Actions `HALO checks` for that commit completed successfully: [run 45402451930](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45402451930).
 - The local suite passes 26 tests: 4 fulfilment tests and 22 payment, order, customer-history, App Check and inventory tests. These are code-level checks, not hosted payment or authentication acceptance.
 - Rothcross owns one Stripe account used across CORPVS CHRISTI, HALO and its other brands. HALO checkout stores `halo` brand/store metadata, and refund processing now resolves the order from the matching PaymentIntent metadata instead of relying on charge metadata being copied. The webhook still rejects live-mode events and records only HALO orders in HALO's own `haloOrders` collection.
 - Customer account source now supports email/password registration, email verification, password reset, account-linked checkout and private order history. Customer order responses omit shipping addresses, email addresses and payment identifiers. Hosted Firebase Auth, sign-in, checkout linking and order-history behavior are not yet verified. Guest orders placed before a customer signs in cannot be linked to an account by this implementation.
