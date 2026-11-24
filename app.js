@@ -535,6 +535,42 @@ function bindInteractions() {
   });
 }
 
+async function showStripeReturnStatus() {
+  const query = new URLSearchParams(window.location.search);
+  const sessionId = query.get('session_id');
+  const payment = query.get('payment');
+  if (payment !== 'processing' || !sessionId) {
+    if (payment === 'cancelled') toast('Checkout was cancelled. You have not been charged.');
+    return;
+  }
+  const endpoint = window.HALO_DELIVERY_CONFIG?.checkoutStatusEndpoint;
+  if (!endpoint) return;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId })
+    });
+    const status = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(status.message || 'Payment status is still being confirmed.');
+    if (status.paymentStatus === 'paid') {
+      cart = [];
+      localStorage.removeItem('halo_cart');
+      renderCart();
+      toast('Payment confirmed. HALO has received your order.');
+    } else if (status.paymentStatus === 'abandoned') {
+      toast('Checkout expired before payment completed.');
+    } else {
+      toast('Payment is still being confirmed. Your order will update shortly.');
+    }
+  } catch (_) {
+    toast('Payment is still being confirmed. Please check again shortly.');
+  } finally {
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+  }
+}
+
 bindInteractions();
 renderCart();
+showStripeReturnStatus();
 loadProducts();

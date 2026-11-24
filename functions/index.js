@@ -225,6 +225,18 @@ exports.getCheckoutStatus = onRequest({ region, invoker: 'public', maxInstances:
     if (!snapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
     const order = snapshot.data();
     if (order.stripeSessionId !== session.id || session.currency !== 'gbp' || session.amount_total !== order.totalPence) return sendError(response, 409, 'payment_mismatch', 'Stripe session does not match the HALO order.');
+    if (session.status === 'expired' && order.paymentStatus === 'pending') {
+      const eventId = `checkout_expired_${session.id}`;
+      const eventRef = db.collection('haloStripeEvents').doc(eventId);
+      await db.runTransaction(async transaction => {
+        const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(db.collection('haloOrders').doc(session.metadata.orderId))]);
+        if (eventSnapshot.exists || !orderSnapshot.exists) return;
+        const current = orderSnapshot.data();
+        if (current.stripeSessionId !== session.id || current.paymentStatus !== 'pending') return;
+        transaction.update(orderSnapshot.ref, { paymentStatus: 'abandoned', updatedAt: FieldValue.serverTimestamp() });
+        transaction.create(eventRef, { type: 'checkout.session.expired', orderId: session.metadata.orderId, status: 'processed_by_status_check', createdAt: FieldValue.serverTimestamp() });
+      });
+    }
     response.set('Cache-Control', 'no-store').status(200).json({
       paymentStatus: session.payment_status === 'paid' ? 'paid' : session.status === 'expired' ? 'abandoned' : 'pending',
       orderStatus: order.status, paymentState: order.paymentStatus || 'pending'
