@@ -59,3 +59,24 @@ test('enforces pending-to-delivered order lifecycle and disallows skipping steps
   assert.equal(nextOrderStatus('dispatched', 'delivered'), 'delivered');
   assert.throws(() => nextOrderStatus('paid', 'delivered'), /cannot move/);
 });
+
+test('captures UK shipping details from current and legacy Checkout Session shapes', () => {
+  const details = {
+    name: 'Test Customer',
+    address: { line1: '1 Test Street', city: 'London', postal_code: 'SW1A 1AA', country: 'GB' }
+  };
+  for (const fields of [{ collected_information: { shipping_details: details } }, { shipping_details: details }]) {
+    const patch = stripeEventOrderUpdate(order, event('checkout.session.completed', session(fields)));
+    assert.deepEqual(patch.shippingDetails, {
+      name: 'Test Customer', line1: '1 Test Street', line2: '', city: 'London',
+      region: '', postcode: 'SW1A 1AA', country: 'GB'
+    });
+  }
+  assert.equal(stripeEventOrderUpdate(order, event('checkout.session.completed', session())).shippingDetails, null);
+});
+
+test('an older refund event cannot decrease the recorded cumulative refund', () => {
+  const refunded = { ...order, paymentIntentId: 'pi_test_halo_01', refundedPence: order.totalPence };
+  const charge = { payment_intent: refunded.paymentIntentId, currency: 'gbp', amount: order.totalPence, amount_refunded: 1000 };
+  assert.deepEqual(stripeRefundOrderUpdate(refunded, charge), { eventStatus: 'older_refund_total_ignored' });
+});
