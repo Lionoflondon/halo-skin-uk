@@ -39,4 +39,16 @@ function pendingHaloFinancialEntry({ stripeAccountId, orderId, sourceType, sourc
   };
 }
 
-module.exports = { haloFinancialEntry, pendingHaloFinancialEntry };
+function validateHaloCharge({ charge, order, paymentIntentId }) {
+  if (!charge || !order || order.brand !== 'HALO' || order.currency !== 'GBP' ||
+      typeof paymentIntentId !== 'string' || !paymentIntentId ||
+      charge.payment_intent !== paymentIntentId || charge.currency !== 'gbp' || charge.paid !== true ||
+      charge.status !== 'succeeded' || charge.amount !== order.totalPence ||
+      !Number.isSafeInteger(charge.amount_captured) || charge.amount_captured !== order.totalPence ||
+      !/^[a-f0-9]{32}$/.test(String(order.id || ''))) {
+    throw new Error('Stripe charge does not match the paid HALO order.');
+  }
+  return true;
+}
+
+module.exports = { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge };

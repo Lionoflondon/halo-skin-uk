@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { haloFinancialEntry, pendingHaloFinancialEntry } = require('../halo-financial-core');
+const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('../halo-financial-core');
 
 const base = {
   id: 'txn_test_1', amount: 2500, fee: 70, net: 2430, currency: 'gbp',
@@ -34,4 +34,12 @@ test('keeps unresolved balance transactions visible without inventing fees', () 
   assert.equal(entry.reconciliationStatus, 'pending_balance_transaction');
   assert.equal(entry.feePence, null);
   assert.equal(entry.netPence, null);
+});
+
+test('accepts a charge only when its currency, captured amount and PaymentIntent match the HALO order', () => {
+  const order = { id: 'a'.repeat(32), brand: 'HALO', currency: 'GBP', totalPence: 2500, paymentIntentId: 'pi_test_1' };
+  const charge = { payment_intent: 'pi_test_1', currency: 'gbp', paid: true, status: 'succeeded', amount: 2500, amount_captured: 2500 };
+  assert.equal(validateHaloCharge({ charge, order, paymentIntentId: 'pi_test_1' }), true);
+  assert.throws(() => validateHaloCharge({ charge: { ...charge, amount_captured: 2000 }, order, paymentIntentId: 'pi_test_1' }), /does not match/);
+  assert.throws(() => validateHaloCharge({ charge: { ...charge, currency: 'usd' }, order, paymentIntentId: 'pi_test_1' }), /does not match/);
 });

@@ -13,7 +13,7 @@ const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefund
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
-const { haloFinancialEntry, pendingHaloFinancialEntry } = require('./halo-financial-core');
+const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
 
 initializeApp();
 const db = getFirestore();
@@ -563,6 +563,7 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
           (orderSnapshot.data().paymentIntentId && orderSnapshot.data().paymentIntentId !== paymentIntentId)) {
         throw new Error('HALO charge does not match a recorded HALO order.');
       }
+      validateHaloCharge({ charge, order: { id: orderId, ...orderSnapshot.data() }, paymentIntentId });
       const [balanceTransaction, stripeAccount] = await Promise.all([
         resolveBalanceTransaction(stripe, charge), stripe.accounts.retrieve()
       ]);
