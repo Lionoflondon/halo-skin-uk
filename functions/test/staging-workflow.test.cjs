@@ -29,3 +29,8 @@ test('HALO ROTH deployment requires its registered staging API and London-replic
   assert.match(workflow, /write_london_secret HALO_ROTH_MERCHANT_SECRET/);
   assert.match(workflow, /ROTH_API_ORIGIN/);
 });
+
+test('HALO staging redeploys do not add duplicate secret versions', () => {
+  assert.match(workflow, /gcloud secrets versions access latest[\s\S]*cmp -s - "\$current_value"[\s\S]*gcloud secrets versions add/);
+  assert.match(workflow, /refusing to add another secret version/);
+});

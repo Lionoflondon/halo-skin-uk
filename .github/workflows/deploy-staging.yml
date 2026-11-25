@@ -117,6 +117,18 @@ jobs:
             if [[ "$exists" == "false" ]]; then
               printf %s "$value" | gcloud secrets create "$name" --project "$PROJECT_ID" --data-file=- --replication-policy=user-managed --locations=europe-west2
             else
+              local current_value
+              current_value="$(mktemp)"
+              if ! gcloud secrets versions access latest --secret "$name" --project "$PROJECT_ID" --out-file "$current_value" >/dev/null; then
+                rm -f "$current_value"
+                echo "Could not safely compare the latest $name version; refusing to add another secret version." >&2
+                return 1
+              fi
+              if printf %s "$value" | cmp -s - "$current_value"; then
+                rm -f "$current_value"
+                return 0
+              fi
+              rm -f "$current_value"
               printf %s "$value" | gcloud secrets versions add "$name" --project "$PROJECT_ID" --data-file=-
             fi
           }
