@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('../halo-payment-core');
+const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('../halo-payment-core');
 
 const products = [
   { id: 'lip-01', variantId: 'v-01', title: 'Lip treatment', price: 18, published: true, available: true, stockQuantity: 10 },
@@ -14,6 +14,12 @@ test('accepts only Stripe test/restricted test keys', () => {
   assert.equal(requireTestStripeKey('rk_test_example'), 'rk_test_example');
   assert.throws(() => requireTestStripeKey('sk_live_example'), /test keys only/);
   assert.throws(() => requireTestStripeKey(''), /test keys only/);
+});
+
+test('restricts every HALO Stripe operation to the isolated staging project', () => {
+  assert.doesNotThrow(() => assertHaloStagingProject('halo-skin-uk-stg'));
+  assert.throws(() => assertHaloStagingProject('halo-skin-uk'), /isolated staging project/);
+  assert.throws(() => assertHaloStagingProject(''), /isolated staging project/);
 });
 
 test('pins Stripe API key to the expected Rothcross account', () => {

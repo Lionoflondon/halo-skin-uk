@@ -2,6 +2,10 @@
 
 const STANDARD_DELIVERY_PENCE = 299;
 
+function assertHaloStagingProject(projectId) {
+  if (projectId !== 'halo-skin-uk-stg') throw new Error('HALO test payments require the isolated staging project.');
+}
+
 function requireTestStripeKey(key) {
   if (!/^(?:sk|rk)_test_[^\s]+$/.test(key || '')) throw new Error('HALO checkout accepts Stripe test keys only.');
   return key;
@@ -38,4 +42,4 @@ function checkoutFingerprint({ items, email, deliveryMethod, customerUid = null 
   return JSON.stringify({ items, email: String(email || '').trim().toLowerCase(), deliveryMethod, customerUid: customerUid || null });
 }
 
-module.exports = { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey };
+module.exports = { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey };

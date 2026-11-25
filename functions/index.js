@@ -8,7 +8,7 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
 const Stripe = require('stripe');
-const { STANDARD_DELIVERY_PENCE, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
+const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
 const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
@@ -72,9 +72,7 @@ function rothIntegration() {
 }
 
 function stripeClient() {
-  if (process.env.GCLOUD_PROJECT !== 'halo-skin-uk-stg') {
-    throw new Error('HALO test payments require the isolated staging project.');
-  }
+  assertHaloStagingProject(process.env.GCLOUD_PROJECT);
   return new Stripe(requireTestStripeKey(stripeSecret.value()));
 }
 async function assertRothcrossStripeAccount(stripe) {
