@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/deploy-staging.yml'), 'utf8');
 
@@ -36,6 +37,20 @@ test('HALO ROTH staging is optional for core deployment but all merchant setting
 test('ROTH endpoints are exported only when the three merchant identity settings exist', () => {
   const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
   assert.match(functions, /if \(rothApiOrigin\.value\(\) && rothMerchantKeyId\.value\(\) && rothBusinessId\.value\(\)\)\s*\{\s*exports\.rothLinkStart/);
+});
+
+test('core HALO Functions load without ROTH settings and ROTH endpoints appear as a complete set', () => {
+  const functionsDir = path.join(__dirname, '..');
+  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements}))";
+  const baseEnv = { ...process.env, GCLOUD_PROJECT: 'halo-skin-uk-stg' };
+  delete baseEnv.HALO_ROTH_API_ORIGIN;
+  delete baseEnv.HALO_ROTH_MERCHANT_KEY_ID;
+  delete baseEnv.HALO_ROTH_BUSINESS_ID;
+  const core = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: baseEnv, encoding: 'utf8' }));
+  assert.deepEqual(core, { checkout: true, customer: true, rothWallet: false, rothRewards: false, rothSettlements: false });
+  const rothEnv = { ...baseEnv, HALO_ROTH_API_ORIGIN: 'https://roth.example', HALO_ROTH_MERCHANT_KEY_ID: 'halo-stage-key', HALO_ROTH_BUSINESS_ID: 'halo-merchant' };
+  const enabled = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: rothEnv, encoding: 'utf8' }));
+  assert.deepEqual(enabled, { checkout: true, customer: true, rothWallet: true, rothRewards: true, rothSettlements: true });
 });
 
 test('HALO staging redeploys do not add duplicate secret versions', () => {
