@@ -9,11 +9,23 @@ const { execFileSync } = require('node:child_process');
 const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/deploy-staging.yml'), 'utf8');
 
 test('HALO deployment stays manual, serialized and behind the staging environment gate', () => {
-  assert.match(workflow, /^on:\n  workflow_dispatch:\s*$/m);
+  assert.match(workflow, /^on:\n  workflow_dispatch:\n    inputs:\n      scope:/m);
+  assert.match(workflow, /options:\n          - hosting-only\n          - full-staging\n        default: hosting-only/);
   assert.match(workflow, /group: halo-staging-deploy\n  cancel-in-progress: false/);
   assert.match(workflow, /environment: halo-staging/);
   assert.match(workflow, /test "\$PROJECT_ID" != "halo-skin-uk"[\s\S]*test "\$PROJECT_ID" = "halo-skin-uk-stg"/);
-  assert.match(workflow, /firebase-tools@[^\s]+ deploy --only hosting,functions,firestore:rules,firestore:indexes,auth --project "\$PROJECT_ID"/);
+  assert.match(workflow, /DEPLOY_SCOPE" == "hosting-only"[\s\S]*firebase-tools@[^\s]+ deploy --only hosting --project "\$PROJECT_ID"/);
+  assert.match(workflow, /DEPLOY_SCOPE" == "full-staging"[\s\S]*firebase-tools@[^\s]+ deploy --only hosting,functions,firestore:rules,firestore:indexes,auth --project "\$PROJECT_ID"/);
+  assert.match(workflow, /if: \$\{\{ inputs\.scope == 'full-staging' \}\}/);
+});
+
+test('hosting-only releases keep payments closed until the full staging configuration passes', () => {
+  const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+  const firebaseConfig = fs.readFileSync(path.join(__dirname, '../../firebase-config.js'), 'utf8');
+  assert.match(workflow, /required\.push\('APPCHECK_SITE_KEY'\)/);
+  assert.match(workflow, /HALO_HOSTED_CHECKOUT_ENABLED = \$\{JSON\.stringify\(fullStaging\)\}/);
+  assert.match(app, /window\.HALO_HOSTED_CHECKOUT_ENABLED !== true \|\| !endpoint/);
+  assert.match(firebaseConfig, /window\.HALO_HOSTED_CHECKOUT_ENABLED = false/);
 });
 
 test('HALO Stripe secret injection requires test mode and a London-only replication location', () => {
@@ -31,7 +43,7 @@ test('HALO ROTH staging is optional for core deployment but all merchant setting
   assert.match(workflow, /write_london_secret HALO_ROTH_MERCHANT_SECRET/);
   assert.match(workflow, /ROTH_API_ORIGIN[\s\S]*ROTH_MERCHANT_KEY_ID[\s\S]*ROTH_BUSINESS_ID/);
   assert.match(workflow, /Complete all HALO ROTH merchant settings, or leave all three unset/);
-  assert.match(workflow, /rothEnabled: rothConfigured/);
+  assert.match(workflow, /rothEnabled: fullStaging && rothConfigured/);
 });
 
 test('ROTH endpoints are exported only when the three merchant identity settings exist', () => {

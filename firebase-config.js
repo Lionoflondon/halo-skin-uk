@@ -18,3 +18,4 @@ window.HALO_FIREBASE_CONFIG = haloIsStaging ? {
 };
 
 window.HALO_ADMIN_EMAILS = ['ayojason600@gmail.com'];
+window.HALO_HOSTED_CHECKOUT_ENABLED = false;

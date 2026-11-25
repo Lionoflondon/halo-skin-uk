@@ -640,7 +640,7 @@ function bindInteractions() {
     event.preventDefault();
     const message = $('#checkout-payment-message');
     const endpoint = window.HALO_DELIVERY_CONFIG?.checkoutSessionEndpoint;
-    if (!endpoint) {
+    if (window.HALO_HOSTED_CHECKOUT_ENABLED !== true || !endpoint) {
       if (message) message.textContent = 'Secure checkout is not available yet. No order or payment has been taken.';
       return;
     }
@@ -818,6 +818,14 @@ async function showStripeReturnStatus() {
   } finally {
     if (confirmed || !navigator.onLine) window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
   }
+}
+
+const checkoutSubmitButton = $('#checkout-submit');
+const hostedCheckoutEnabled = window.HALO_HOSTED_CHECKOUT_ENABLED === true;
+if (checkoutSubmitButton) checkoutSubmitButton.disabled = !hostedCheckoutEnabled;
+if (!hostedCheckoutEnabled) {
+  const checkoutMessage = $('#checkout-payment-message');
+  if (checkoutMessage) checkoutMessage.textContent = 'Secure checkout is not configured for this site yet. No order or payment will be taken.';
 }
 
 bindInteractions();
