@@ -21,3 +21,11 @@ test('HALO Stripe secret injection requires test mode and a London-only replicat
   assert.match(workflow, /locations" != "europe-west2,"/);
   assert.doesNotMatch(workflow, /--replication-policy=automatic/);
 });
+
+test('HALO ROTH deployment requires its registered staging API and London-replicated merchant secret', () => {
+  assert.match(workflow, /HALO_ROTH_API_ORIGIN/);
+  assert.match(workflow, /HALO_ROTH_MERCHANT_KEY_ID/);
+  assert.match(workflow, /HALO_ROTH_MERCHANT_SECRET/);
+  assert.match(workflow, /write_london_secret HALO_ROTH_MERCHANT_SECRET/);
+  assert.match(workflow, /ROTH_API_ORIGIN/);
+});

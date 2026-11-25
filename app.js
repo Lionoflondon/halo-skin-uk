@@ -135,7 +135,7 @@ async function initializeCustomerAccount() {
       authApi.onAuthStateChanged(auth, user => {
         customerAuthUser = user;
         renderCustomerAccount();
-        if (user?.emailVerified) loadCustomerOrders();
+        if (user?.emailVerified) { loadCustomerOrders(); loadRothWallet(); }
         if (!initialAuthStateLoaded) {
           initialAuthStateLoaded = true;
           resolveInitialAuthState(user);
@@ -162,6 +162,7 @@ function renderCustomerAccount() {
     $('#customer-account-email').textContent = customerAuthUser.email || 'HALO customer';
     $('#customer-verification-message').hidden = verified;
     $('#customer-order-history').hidden = !verified;
+    $('#customer-roth-wallet').hidden = !verified;
     const email = $('#checkout-form [name="email"]');
     if (email && verified) email.value = customerAuthUser.email || '';
   }
@@ -204,6 +205,43 @@ async function loadCustomerOrders() {
     if (requestNumber === customerOrdersRequest && customerAuthUser?.uid === user.uid) renderCustomerOrders(result.orders || []);
   } catch (error) {
     if (requestNumber === customerOrdersRequest) list.textContent = error.message || 'Your orders could not be loaded.';
+  }
+}
+
+async function loadRothWallet() {
+  const status = $('#customer-roth-status');
+  const user = customerAuthUser;
+  if (!user?.emailVerified || !status) return;
+  status.textContent = 'Loading your HALO allocation from ROTH…';
+  try {
+    const endpoint = window.HALO_DELIVERY_CONFIG?.rothWalletEndpoint;
+    if (!endpoint) throw new Error('ROTH wallet access is not available yet.');
+    const [token, appCheckToken] = await Promise.all([user.getIdToken(), getAppCheckToken()]);
+    const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}`, 'X-Firebase-AppCheck': appCheckToken }, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || 'Your ROTH allocation could not be loaded.');
+    if (customerAuthUser?.uid !== user.uid) return;
+    status.textContent = `HALO allocated: ${money(Number(result.allocatedPence) / 100)} · Reserved for checkout: ${money(Number(result.reservedPence) / 100)}`;
+  } catch (error) {
+    status.textContent = error.message || 'Your ROTH allocation could not be loaded.';
+  }
+}
+
+async function startRothWalletLink() {
+  const status = $('#customer-roth-status');
+  const user = customerAuthUser;
+  if (!user?.emailVerified || !status) return;
+  status.textContent = 'Requesting a secure link code…';
+  try {
+    const endpoint = window.HALO_DELIVERY_CONFIG?.rothLinkStartEndpoint;
+    if (!endpoint) throw new Error('ROTH wallet linking is not available yet.');
+    const [token, appCheckToken] = await Promise.all([user.getIdToken(), getAppCheckToken()]);
+    const response = await fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'X-Firebase-AppCheck': appCheckToken }, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || 'A ROTH link code could not be created.');
+    status.textContent = `Link code: ${result.code}. Open ROTH and approve linking HALO within ${Math.ceil(Number(result.expiresInSeconds) / 60)} minutes, then refresh this account.`;
+  } catch (error) {
+    status.textContent = error.message || 'A ROTH link code could not be created.';
   }
 }
 
@@ -720,6 +758,8 @@ function bindInteractions() {
     catch (error) { $('#customer-account-message').textContent = error.message || 'Sign-out failed.'; }
   });
   $('#customer-orders-refresh')?.addEventListener('click', loadCustomerOrders);
+  $('#customer-roth-link')?.addEventListener('click', startRothWalletLink);
+  $('#customer-roth-refresh')?.addEventListener('click', loadRothWallet);
 
   document.addEventListener('keydown', event => {
     const openPanel = $('.drawer.open,.search-panel.open');

@@ -46,6 +46,7 @@
           <button class="admin-tab active" type="button" data-admin-tab="products">Products</button>
           <button class="admin-tab" type="button" data-admin-tab="deliveries">Deliveries</button>
           <button class="admin-tab" type="button" data-admin-tab="finance">Finance</button>
+          <button class="admin-tab" type="button" data-admin-tab="rewards">ROTH rewards</button>
           <button class="admin-tab" type="button" data-admin-tab="account">Account</button>
         </nav>
 
@@ -129,6 +130,26 @@
           <div class="table-wrap"><table><thead><tr><th>Source</th><th>Order</th><th>Gross</th><th>Processor fee</th><th>Net</th><th>Reconciliation</th></tr></thead><tbody id="finance-entries"><tr><td colspan="6" class="empty">No reconciliation loaded.</td></tr></tbody></table></div>
         </section>
 
+        <section class="admin-section" data-admin-panel="rewards">
+          <div class="panel-heading">
+            <div><p class="eyebrow">CENTRAL ROTH LEDGER</p><h2>Issue HALO reward</h2></div>
+          </div>
+          <p class="notice">Rewards are issued by the central ROTH ledger under HALO’s merchant identity. Each request needs a stable reference, campaign and reason. ROTH merchant registration, issuance scope and allowance must be active before this form can succeed.</p>
+          <form class="password-form" id="roth-reward-form">
+            <label>Customer ROTH handle<input id="roth-reward-handle" autocomplete="off" required maxlength="100"></label>
+            <label>Amount in pence<input id="roth-reward-amount" type="number" min="1" step="1" required></label>
+            <label>Campaign ID<input id="roth-reward-campaign" required maxlength="100"></label>
+            <label>Reason<input id="roth-reward-reason" required maxlength="300"></label>
+            <label>Stable reward reference<input id="roth-reward-reference" required minlength="16" maxlength="128" autocomplete="off"></label>
+            <small>Use the same reference if you retry after a network error. Only a recently authenticated administrator with MFA can submit.</small>
+            <button class="primary-button" id="roth-reward-submit" type="submit">Issue through ROTH</button>
+            <p class="form-message" id="roth-reward-message" role="status"></p>
+          </form>
+          <div class="panel-heading"><div><p class="eyebrow">MERCHANT ACCOUNTING</p><h3>ROTH settlement activity</h3></div><button class="secondary-button" id="refresh-roth-settlements" type="button">Refresh</button></div>
+          <p class="notice" id="roth-settlement-notice">Settlement results are fetched from the central ROTH ledger for HALO's registered merchant identity.</p>
+          <div class="table-wrap"><table><thead><tr><th>Settlement</th><th>Counterparty</th><th>Funding</th><th>Amount</th><th>Status</th><th>Reservation</th></tr></thead><tbody id="roth-settlement-rows"><tr><td colspan="6" class="empty">No ROTH report loaded.</td></tr></tbody></table></div>
+        </section>
+
         <section class="admin-section account-section" data-admin-panel="account">
           <div class="panel-heading">
             <div><p class="eyebrow">SECURITY</p><h2>Admin password</h2></div>
@@ -149,6 +170,6 @@
 
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
-    <script type="module" src="admin.js?v=5"></script>
+    <script type="module" src="admin.js?v=6"></script>
   </body>
 </html>

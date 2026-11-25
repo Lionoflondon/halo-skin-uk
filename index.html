@@ -137,6 +137,12 @@
             <div class="account-orders-heading"><h3 id="customer-orders-title">Order history</h3><button class="account-link" id="customer-orders-refresh" type="button">Refresh</button></div>
             <div id="customer-order-list" aria-live="polite"></div>
           </section>
+          <section id="customer-roth-wallet" hidden aria-labelledby="customer-roth-title">
+            <h3 id="customer-roth-title">ROTH wallet</h3>
+            <p id="customer-roth-status" aria-live="polite">Link your ROTH wallet to view HALO allocations.</p>
+            <button class="account-link" id="customer-roth-link" type="button">Connect ROTH wallet</button>
+            <button class="account-link" id="customer-roth-refresh" type="button">Refresh allocation</button>
+          </section>
           <button class="account-link" id="customer-sign-out" type="button">Sign out</button>
         </div>
         <p class="account-message" id="customer-account-message" role="status" aria-live="polite"></p>
@@ -145,6 +151,6 @@
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
     <script src="delivery.js"></script>
-    <script src="app.js?v=20261124-customer-orders"></script>
+    <script src="app.js?v=20261125-roth-wallet"></script>
   </body>
 </html>

@@ -327,6 +327,29 @@ async function loadFinancialReport() {
   }
 }
 
+async function loadRothSettlements() {
+  const notice = $('#roth-settlement-notice');
+  notice.textContent = 'Loading HALO merchant settlements from ROTH…';
+  try {
+    const user = auth.currentUser;
+    const headers = await getProtectedRequestHeaders(user);
+    const response = await fetch('/api/rothSettlements', { headers, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+    if (auth.currentUser !== user) return;
+    const entries = result.items || [];
+    $('#roth-settlement-rows').innerHTML = entries.length ? entries.map(item => `<tr>
+      <td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.issuingEntityId || item.businessId)}</td>
+      <td>${escapeHtml(item.funding)}</td><td>${item.amountPence === null ? '—' : money(Number(item.amountPence) / 100)}</td>
+      <td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.reservationId)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">No HALO ROTH settlement entries were returned.</td></tr>';
+    const counterparties = Object.entries(result.netByCounterparty || {}).map(([name, amount]) => `${name}: ${money(Number(amount) / 100)}`);
+    notice.textContent = counterparties.length ? `ROTH net by counterparty: ${counterparties.join(' · ')}` : 'No unsettled HALO counterparties were reported by ROTH.';
+  } catch (error) {
+    notice.textContent = error.message || 'ROTH settlement activity could not be loaded.';
+  }
+}
+
 async function loadOrders() {
   const tbody = $('#orders');
   const notice = $('#admin-notice');
@@ -526,6 +549,34 @@ $('#reset-product').addEventListener('click', resetProductForm);
 $('#import-products').addEventListener('click', importStarterProducts);
 $('#refresh').addEventListener('click', loadOrders);
 $('#refresh-finance').addEventListener('click', loadFinancialReport);
+$('#refresh-roth-settlements').addEventListener('click', loadRothSettlements);
+$('#roth-reward-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = $('#roth-reward-submit');
+  const feedback = $('#roth-reward-message');
+  const user = auth.currentUser;
+  if (!user) return message(feedback, 'Sign in again before issuing a reward.', 'error');
+  const reference = $('#roth-reward-reference').value.trim();
+  const payload = {
+    handle: $('#roth-reward-handle').value.trim(),
+    amountPence: Number($('#roth-reward-amount').value),
+    campaignId: $('#roth-reward-campaign').value.trim(),
+    reason: $('#roth-reward-reason').value.trim()
+  };
+  button.disabled = true;
+  message(feedback, 'Submitting the HALO reward to the central ROTH ledger…');
+  try {
+    const headers = await getProtectedRequestHeaders(user, { 'Content-Type': 'application/json', 'Idempotency-Key': reference });
+    const response = await fetch('/api/rothIssueReward', { method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `ROTH did not accept the reward (${response.status}).`);
+    message(feedback, `Reward issued through ROTH.${result.journalId ? ` Journal ${result.journalId}.` : ''} Keep this reference for audit: ${reference}.`, 'success');
+  } catch (error) {
+    message(feedback, error.message || 'The reward was not confirmed by ROTH. Retry with the same reference.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
 $('#orders').addEventListener('click', async event => {
   const statusButton = event.target.closest('[data-order-status]');
   const refundButton = event.target.closest('[data-order-refund]');

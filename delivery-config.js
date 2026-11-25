@@ -4,6 +4,8 @@ window.HALO_DELIVERY_CONFIG = {
   checkoutSessionEndpoint: '/api/createCheckoutSession',
   checkoutStatusEndpoint: '/api/getCheckoutStatus',
   customerOrdersEndpoint: '/api/customerOrders',
+  rothLinkStartEndpoint: '/api/rothLinkStart',
+  rothWalletEndpoint: '/api/rothWallet',
   adminOrdersEndpoint: '/api/adminOrders',
   stockCountEndpoint: '/api/setHaloStockCount',
   circumCheckoutEnabled: false,

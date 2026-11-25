@@ -14,18 +14,23 @@ const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
 const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
+const { createRothMerchantClient, haloRothIntegration } = require('./roth-merchant-core');
 
 initializeApp();
 const db = getFirestore();
 const stripeSecret = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
 const expectedStripeAccountId = defineString('ROTHCROSS_STRIPE_ACCOUNT_ID');
+const rothApiOrigin = defineString('HALO_ROTH_API_ORIGIN', { default: '' });
+const rothMerchantKeyId = defineString('HALO_ROTH_MERCHANT_KEY_ID', { default: '' });
+const rothMerchantSecret = defineSecret('HALO_ROTH_MERCHANT_SECRET');
 const siteUrl = defineString('HALO_SITE_URL', { default: 'https://haloskinuk.com' });
 const allowedOrigins = defineString('HALO_CHECKOUT_ALLOWED_ORIGINS', { default: 'https://haloskinuk.com,https://www.haloskinuk.com' });
 const region = 'europe-west2';
 const HALO_ADMIN_EMAIL = 'ayojason600@gmail.com';
 
 class AdminAccessError extends Error {}
+class CustomerAccessError extends Error {}
 
 async function requireAppCheck(request) {
   await requireVerifiedAppCheck(request, token => getAppCheck().verifyToken(token));
@@ -40,6 +45,28 @@ async function requireHaloAdmin(request) {
     throw new AdminAccessError('A recently authenticated Halo administrator session with MFA is required.');
   }
   return token;
+}
+
+async function requireVerifiedHaloCustomer(request) {
+  await requireAppCheck(request);
+  const match = /^Bearer (.+)$/.exec(request.get('authorization') || '');
+  if (!match) throw new CustomerAccessError('Sign in to your verified HALO customer account.');
+  let identity;
+  try { identity = await getAuth().verifyIdToken(match[1], true); }
+  catch (_) { throw new CustomerAccessError('Your HALO session has expired. Sign in again.'); }
+  if (identity.email_verified !== true) throw new CustomerAccessError('Verify your HALO account email first.');
+  return identity;
+}
+
+function rothIntegration() {
+  if (process.env.GCLOUD_PROJECT !== 'halo-skin-uk-stg') throw new Error('HALO ROTH integration requires the isolated staging project.');
+  const origin = rothApiOrigin.value();
+  if (!origin) throw new Error('HALO is not registered with the ROTH staging merchant API yet.');
+  return haloRothIntegration(createRothMerchantClient({
+    baseUrl: origin,
+    keyId: rothMerchantKeyId.value(),
+    secret: rothMerchantSecret.value()
+  }));
 }
 
 function stripeClient() {
@@ -278,6 +305,111 @@ exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 
     response.set('Cache-Control', 'no-store').status(200).json({ orders });
   } catch (_) {
     sendError(response, 503, 'orders_unavailable', 'Your order history is temporarily unavailable. Try again shortly.');
+  }
+});
+
+exports.rothLinkStart = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to link your ROTH wallet.');
+  try {
+    const identity = await requireVerifiedHaloCustomer(request);
+    const result = await rothIntegration().startLink(identity.uid);
+    if (typeof result.code !== 'string' || !result.code || !Number.isSafeInteger(result.expiresInSeconds) || result.expiresInSeconds < 1) throw new Error('ROTH returned an invalid wallet-link response.');
+    response.set('Cache-Control', 'no-store').status(200).json({ code: result.code, expiresInSeconds: result.expiresInSeconds });
+  } catch (error) {
+    if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 409 : 503,
+      error.code || 'roth_link_unavailable', error.status ? 'ROTH could not start wallet linking. Try again shortly.' : error.message || 'ROTH wallet linking is not configured for HALO staging yet.');
+  }
+});
+
+exports.rothWallet = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to view your ROTH wallet allocation.');
+  try {
+    const identity = await requireVerifiedHaloCustomer(request);
+    const wallet = await rothIntegration().wallet(identity.uid);
+    if (!wallet || typeof wallet.businessId !== 'string' || !Number.isSafeInteger(wallet.allocatedPence) || !Number.isSafeInteger(wallet.reservedPence)) {
+      throw new Error('ROTH returned an invalid wallet response.');
+    }
+    response.set('Cache-Control', 'no-store').status(200).json({
+      businessId: wallet.businessId,
+      allocatedPence: wallet.allocatedPence,
+      reservedPence: wallet.reservedPence
+    });
+  } catch (error) {
+    if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : 503,
+      error.code || 'roth_wallet_unavailable', error.status ? 'Your ROTH wallet could not be read. If you have not linked it yet, start linking first.' : error.message || 'ROTH wallet services are not configured for HALO staging yet.');
+  }
+});
+
+exports.rothIssueReward = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This Halo Admin origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to issue an authorised ROTH reward.');
+  let admin;
+  try { admin = await requireHaloAdmin(request); }
+  catch (error) {
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    return sendError(response, 401, 'admin_auth_required', error.message || 'A recently authenticated Halo administrator session with MFA is required.');
+  }
+  const idempotencyKey = request.get('idempotency-key') || '';
+  const handle = String(request.body?.handle || '').trim();
+  const campaignId = String(request.body?.campaignId || '').trim();
+  const reason = String(request.body?.reason || '').trim();
+  const amountPence = request.body?.amountPence;
+  if (idempotencyKey.length < 16 || idempotencyKey.length > 128 || !handle || handle.length > 100 ||
+      !campaignId || campaignId.length > 100 || !reason || reason.length > 300 ||
+      !Number.isSafeInteger(amountPence) || amountPence < 1) {
+    return sendError(response, 422, 'reward_input_invalid', 'Provide a customer handle, positive amount in pence, campaign, reason and stable request key.');
+  }
+  try {
+    const result = await rothIntegration().issueReward({ handle, rewardId: idempotencyKey, amountPence, campaignId, reason });
+    const rewardRef = db.collection('haloRothRewards').doc(hash(idempotencyKey));
+    await rewardRef.set({
+      brand: 'HALO', store: 'halo', provider: 'ROTH', externalReferenceHash: hash(idempotencyKey),
+      handleHash: hash(handle.toLowerCase()), amountPence, campaignId, reason,
+      rothJournalId: String(result.id || result.journalId || ''), status: 'issued',
+      issuedByUid: admin.uid, issuedByEmail: admin.email, createdAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    response.set('Cache-Control', 'no-store').status(200).json({ status: 'issued', journalId: result.id || result.journalId || null });
+  } catch (error) {
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : error.status === 409 ? 409 : 503,
+      error.code || 'roth_reward_unavailable', error.status ? 'ROTH did not accept this reward. Check the HALO merchant scope and staging allowance.' : error.message || 'ROTH reward issuance is not configured for HALO staging yet.');
+  }
+});
+
+exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This Halo Admin origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to read HALO settlement attribution.');
+  try {
+    await requireHaloAdmin(request);
+    const result = await rothIntegration().settlements();
+    const items = Array.isArray(result.items) ? result.items.slice(0, 500).map(item => ({
+      id: String(item.id || ''), businessId: String(item.businessId || ''),
+      issuingEntityId: String(item.issuingEntityId || ''), createdAt: item.createdAt?.toDate?.().toISOString() ||
+        (typeof item.createdAt === 'string' ? item.createdAt : Number.isSafeInteger(item.createdAt?._seconds) ? new Date(item.createdAt._seconds * 1000).toISOString() : null),
+      funding: String(item.funding || ''), amountPence: Number.isSafeInteger(item.amountPence) ? item.amountPence : null,
+      status: String(item.status || ''), reservationId: String(item.reservationId || '')
+    })) : [];
+    const netByCounterparty = Object.fromEntries(Object.entries(result.netByCounterparty || {}).slice(0, 100)
+      .filter(([name, amount]) => typeof name === 'string' && Number.isSafeInteger(amount)));
+    response.status(200).json({ items, netByCounterparty });
+  } catch (error) {
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    if (error instanceof AdminAccessError) return sendError(response, 401, 'admin_auth_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : 503,
+      error.code || 'roth_settlement_unavailable', error.status ? 'ROTH settlement reporting is unavailable for HALO.' : error.message || 'ROTH merchant reporting is not configured for HALO staging yet.');
   }
 });
 

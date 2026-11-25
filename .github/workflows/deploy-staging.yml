@@ -37,6 +37,8 @@ jobs:
           STORAGE_BUCKET: ${{ vars.HALO_FIREBASE_STORAGE_BUCKET }}
           MESSAGING_SENDER_ID: ${{ vars.HALO_FIREBASE_MESSAGING_SENDER_ID }}
           STRIPE_ACCOUNT_ID: ${{ vars.ROTHCROSS_STRIPE_ACCOUNT_ID }}
+          ROTH_API_ORIGIN: ${{ vars.HALO_ROTH_API_ORIGIN }}
+          ROTH_MERCHANT_KEY_ID: ${{ vars.HALO_ROTH_MERCHANT_KEY_ID }}
           APP_ID: ${{ vars.HALO_FIREBASE_APP_ID }}
           APPCHECK_SITE_KEY: ${{ vars.HALO_FIREBASE_APPCHECK_SITE_KEY }}
         run: |
@@ -46,6 +48,13 @@ jobs:
           if (!/^acct_[a-zA-Z0-9]+$/.test(stripeAccount || '')) {
             throw new Error('Set the verified shared Rothcross Stripe account ID before deploying.');
           }
+          const rothOriginValue = process.env.ROTH_API_ORIGIN || '';
+          if (!rothOriginValue) throw new Error('Set the registered ROTH staging API origin (HTTPS origin only).');
+          const rothOrigin = new URL(rothOriginValue);
+          if (rothOrigin.protocol !== 'https:' || rothOrigin.pathname !== '/' || rothOrigin.search || rothOrigin.hash || rothOrigin.username || rothOrigin.password) {
+            throw new Error('Set the registered ROTH staging API origin (HTTPS origin only).');
+          }
+          if (!process.env.ROTH_MERCHANT_KEY_ID) throw new Error('Set HALO\'s active ROTH staging merchant key ID before deploying.');
           const required = ['API_KEY', 'AUTH_DOMAIN', 'STORAGE_BUCKET', 'MESSAGING_SENDER_ID', 'APP_ID', 'APPCHECK_SITE_KEY'];
           if (required.some(name => !process.env[name])) {
             throw new Error('Complete HALO staging Firebase web configuration before deploying.');
@@ -58,6 +67,8 @@ jobs:
             `HALO_SITE_URL=${stagingUrl}`,
             `HALO_CHECKOUT_ALLOWED_ORIGINS=${stagingUrl}`,
             `ROTHCROSS_STRIPE_ACCOUNT_ID=${stripeAccount}`,
+            `HALO_ROTH_API_ORIGIN=${rothOrigin.origin}`,
+            `HALO_ROTH_MERCHANT_KEY_ID=${process.env.ROTH_MERCHANT_KEY_ID}`,
             ''
           ].join('\n'));
           const config = {
@@ -79,14 +90,16 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-      - name: Configure Stripe test secrets in HALO staging Secret Manager
+      - name: Configure HALO payment and ROTH staging secrets in London Secret Manager
         env:
           PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
           STRIPE_SECRET_KEY: ${{ secrets.HALO_STRIPE_TEST_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.HALO_STRIPE_WEBHOOK_SECRET }}
+          ROTH_MERCHANT_SECRET: ${{ secrets.HALO_ROTH_MERCHANT_SECRET }}
         run: |
           test -n "$STRIPE_SECRET_KEY"
           test -n "$STRIPE_WEBHOOK_SECRET"
+          test -n "$ROTH_MERCHANT_SECRET"
           case "$STRIPE_SECRET_KEY" in sk_test_*|rk_test_*) ;; *) echo "HALO requires a Stripe test-mode key" >&2; exit 1;; esac
           write_london_secret() {
             local name="$1"
@@ -109,6 +122,7 @@ jobs:
           }
           write_london_secret STRIPE_SECRET_KEY "$STRIPE_SECRET_KEY"
           write_london_secret STRIPE_WEBHOOK_SECRET "$STRIPE_WEBHOOK_SECRET"
+          write_london_secret HALO_ROTH_MERCHANT_SECRET "$ROTH_MERCHANT_SECRET"
       - name: Deploy only to the configured HALO staging project
         env:
           PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
