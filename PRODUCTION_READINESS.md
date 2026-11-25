@@ -1,6 +1,6 @@
 # HALO Skin UK production readiness review
 
-Reviewed 20 November 2026. Scope is the retail skincare storefront described by this repository, not the separate synthetic HALO merchant harness in ROTH.
+Historical review: 20 November 2026. For current implementation, infrastructure, hosted probes and launch gates, see [Stage 4 readiness evidence](STAGE_4_READINESS.md). The status observations below are a dated baseline and must not be treated as current. Scope is the retail skincare storefront described by this repository, not the separate synthetic HALO merchant harness in ROTH.
 
 ## Product behavior established by the repository
 
