@@ -3,7 +3,7 @@
 ## Isolated ROTH settlement adapter correction — 25 November 2026
 
 - On the isolated `codex/halo-settlement-identity` branch, the HALO settlement endpoint now accepts a ROTH settlement row when HALO is either the redeeming `businessId` or original funding `issuingEntityId`. This includes valid outgoing issuer obligations while still rejecting rows unrelated to HALO. Contract tests cover incoming, outgoing, self-redemption, unrelated and malformed rows.
-- Updated the Functions dependency to Firebase Admin 14.5.1 on the existing Node 22 runtime. `npm audit --prefix functions` reported zero vulnerabilities. The full local suite passed: 10 storefront/backup tests and 39 Functions tests. These are local source tests, not a hosted integration or deployment.
+- Updated Firebase Admin to 14.5.1 and Firebase Functions to 7.4.0 on the existing Node 22 runtime; Functions 7.4.0 declares compatibility with Admin 14. The codebase does not use the removed `functions.config()` API. `npm audit --prefix functions` reported zero vulnerabilities. The full local suite passed: 10 storefront/backup tests and 39 Functions tests. These are local source tests, not a hosted integration or deployment.
 - No HALO staging merchant record, credential, issuance, ROTH API call or deployment was created. Checkout remains Stripe-only; this change only corrects the settlement statement filter and does not enable ROTH redemption at checkout.
 
 ## Latest source verification — 25 November 2026
