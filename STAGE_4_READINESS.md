@@ -28,6 +28,7 @@
 - Hosting: https://halo-skin-uk-stg.web.app/ and /admin returned HTTP 200. The Hosting-only release did not attach checkout rewrites. /api/createCheckoutSession returned HTTP 404.
 - Firestore: default Standard Native database in London (`europe-west2`), free tier and deletion protection enabled. Firebase compiled and released the staging-only rules. Point-in-time recovery was disabled when verified.
 - Budget: £10 monthly, actual spend alerts at £5, £8 and £10, scoped to project 309796789447. Budget ID `6e0895cf-d131-4dd5-a042-a06befa66c71`. Alert delivery has not been exercised.
+- Read-only Firebase CLI refresh on 25 November 2026: the HALO staging Web App is ACTIVE, the default Firestore Native Standard database is in `europe-west2` with deletion protection enabled and Point-in-Time Recovery disabled, and `firebase functions:list` returned no deployed functions. Firebase CLI access works for these read-only checks. `gcloud auth list` still cannot load its credentials because this environment cannot write to the user's gcloud configuration directory; no permission changes or cloud mutations were made.
 - Source: `codex/halo-stage4`. Storefront release source `16a1884`. Regression tests `17f5baf`, 17 local tests passed.
 
 ## Checkout acceptance
