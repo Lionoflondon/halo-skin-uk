@@ -14,7 +14,7 @@ const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
 const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
-const { createRothMerchantClient, haloRothIntegration } = require('./roth-merchant-core');
+const { createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
 
 initializeApp();
 const db = getFirestore();
@@ -23,6 +23,7 @@ const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
 const expectedStripeAccountId = defineString('ROTHCROSS_STRIPE_ACCOUNT_ID');
 const rothApiOrigin = defineString('HALO_ROTH_API_ORIGIN', { default: '' });
 const rothMerchantKeyId = defineString('HALO_ROTH_MERCHANT_KEY_ID', { default: '' });
+const rothBusinessId = defineString('HALO_ROTH_BUSINESS_ID', { default: '' });
 const rothMerchantSecret = defineSecret('HALO_ROTH_MERCHANT_SECRET');
 const siteUrl = defineString('HALO_SITE_URL', { default: 'https://haloskinuk.com' });
 const allowedOrigins = defineString('HALO_CHECKOUT_ALLOWED_ORIGINS', { default: 'https://haloskinuk.com,https://www.haloskinuk.com' });
@@ -60,6 +61,7 @@ async function requireVerifiedHaloCustomer(request) {
 
 function rothIntegration() {
   if (process.env.GCLOUD_PROJECT !== 'halo-skin-uk-stg') throw new Error('HALO ROTH integration requires the isolated staging project.');
+  verifyRothBusinessIdentity('', rothBusinessId.value());
   const origin = rothApiOrigin.value();
   if (!origin) throw new Error('HALO is not registered with the ROTH staging merchant API yet.');
   return haloRothIntegration(createRothMerchantClient({
@@ -334,7 +336,8 @@ exports.rothWallet = onRequest({ region, invoker: 'public', maxInstances: 2, tim
   try {
     const identity = await requireVerifiedHaloCustomer(request);
     const wallet = await rothIntegration().wallet(identity.uid);
-    if (!wallet || typeof wallet.businessId !== 'string' || !Number.isSafeInteger(wallet.allocatedPence) || !Number.isSafeInteger(wallet.reservedPence)) {
+    verifyRothBusinessIdentity(wallet?.businessId, rothBusinessId.value(), { requireActual: true });
+    if (!Number.isSafeInteger(wallet.allocatedPence) || !Number.isSafeInteger(wallet.reservedPence)) {
       throw new Error('ROTH returned an invalid wallet response.');
     }
     response.set('Cache-Control', 'no-store').status(200).json({
@@ -373,6 +376,7 @@ exports.rothIssueReward = onRequest({ region, invoker: 'public', maxInstances: 2
   }
   try {
     const result = await rothIntegration().issueReward({ handle, rewardId: idempotencyKey, amountPence, campaignId, reason });
+    verifyRothBusinessIdentity(result.businessId, rothBusinessId.value());
     const rewardRef = db.collection('haloRothRewards').doc(hash(idempotencyKey));
     await rewardRef.set({
       brand: 'HALO', store: 'halo', provider: 'ROTH', externalReferenceHash: hash(idempotencyKey),
@@ -395,6 +399,9 @@ exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2
   try {
     await requireHaloAdmin(request);
     const result = await rothIntegration().settlements();
+    if (Array.isArray(result.items)) {
+      for (const item of result.items) verifyRothBusinessIdentity(item.businessId, rothBusinessId.value(), { requireActual: true });
+    }
     const items = Array.isArray(result.items) ? result.items.slice(0, 500).map(item => ({
       id: String(item.id || ''), businessId: String(item.businessId || ''),
       issuingEntityId: String(item.issuingEntityId || ''), createdAt: item.createdAt?.toDate?.().toISOString() ||
@@ -404,7 +411,7 @@ exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2
     })) : [];
     const netByCounterparty = Object.fromEntries(Object.entries(result.netByCounterparty || {}).slice(0, 100)
       .filter(([name, amount]) => typeof name === 'string' && Number.isSafeInteger(amount)));
-    response.status(200).json({ items, netByCounterparty });
+    response.status(200).json({ merchantBusinessId: rothBusinessId.value(), items, netByCounterparty });
   } catch (error) {
     if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
     if (error instanceof AdminAccessError) return sendError(response, 401, 'admin_auth_required', error.message);

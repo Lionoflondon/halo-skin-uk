@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash, createHmac } = require('node:crypto');
-const { createRothMerchantClient, haloRothIntegration, integrationReference } = require('../roth-merchant-core');
+const { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity } = require('../roth-merchant-core');
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
@@ -88,5 +88,12 @@ test('rejects missing identities, invalid references and non-positive reward/red
   assert.throws(() => api.reserve({ externalId: 'uid', orderId: '', amountPence: 1 }), /stable HALO reference/);
   assert.throws(() => api.refund({ refundId: 'refund', journalId: 'journal', amountPence: -1, reason: 'reason' }), /positive whole amount/);
   assert.throws(() => api.receipt(''), /journal reference/);
+});
+
+test('pins returned ROTH company identity to HALO and rejects an unverified wallet identity', () => {
+  assert.equal(verifyRothBusinessIdentity('halo-merchant', 'halo-merchant', { requireActual: true }), 'halo-merchant');
+  assert.throws(() => verifyRothBusinessIdentity('corpvs-christi', 'halo-merchant', { requireActual: true }), /different Rothcross business/);
+  assert.throws(() => verifyRothBusinessIdentity('', 'halo-merchant', { requireActual: true }), /did not return/);
+  assert.throws(() => verifyRothBusinessIdentity('', ''), /not configured/);
 });
 

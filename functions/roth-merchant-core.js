@@ -11,6 +11,12 @@ const positivePence = value => {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error('Enter a positive whole amount in pence.');
   return value;
 };
+function verifyRothBusinessIdentity(actualBusinessId, expectedBusinessId, { requireActual = false } = {}) {
+  if (typeof expectedBusinessId !== 'string' || !expectedBusinessId.trim()) throw new Error('HALO ROTH business identity is not configured.');
+  if (requireActual && (typeof actualBusinessId !== 'string' || !actualBusinessId.trim())) throw new Error('ROTH did not return its merchant business identity.');
+  if (actualBusinessId && actualBusinessId !== expectedBusinessId) throw new Error('ROTH merchant credential resolved to a different Rothcross business.');
+  return expectedBusinessId;
+}
 
 function createRothMerchantClient({ baseUrl, keyId, secret, fetchImpl = fetch, clock = () => new Date(), nonceFactory = randomUUID }) {
   const origin = new URL(baseUrl);
@@ -118,4 +124,4 @@ function haloRothIntegration(client) {
   };
 }
 
-module.exports = { createRothMerchantClient, haloRothIntegration, integrationReference };
+module.exports = { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity };

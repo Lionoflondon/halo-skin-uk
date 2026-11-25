@@ -26,6 +26,7 @@ test('HALO ROTH deployment requires its registered staging API and London-replic
   assert.match(workflow, /HALO_ROTH_API_ORIGIN/);
   assert.match(workflow, /HALO_ROTH_MERCHANT_KEY_ID/);
   assert.match(workflow, /HALO_ROTH_MERCHANT_SECRET/);
+  assert.match(workflow, /HALO_ROTH_BUSINESS_ID/);
   assert.match(workflow, /write_london_secret HALO_ROTH_MERCHANT_SECRET/);
   assert.match(workflow, /ROTH_API_ORIGIN/);
 });
