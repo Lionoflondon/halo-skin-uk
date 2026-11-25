@@ -14,7 +14,7 @@ const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
 const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
-const { createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
+const { createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity, verifyRothSettlementIdentity } = require('./roth-merchant-core');
 
 initializeApp();
 const db = getFirestore();
@@ -401,7 +401,7 @@ exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2
     await requireHaloAdmin(request);
     const result = await rothIntegration().settlements();
     if (Array.isArray(result.items)) {
-      for (const item of result.items) verifyRothBusinessIdentity(item.businessId, rothBusinessId.value(), { requireActual: true });
+      for (const item of result.items) verifyRothSettlementIdentity(item, rothBusinessId.value());
     }
     const items = Array.isArray(result.items) ? result.items.slice(0, 500).map(item => ({
       id: String(item.id || ''), businessId: String(item.businessId || ''),

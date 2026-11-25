@@ -18,6 +18,14 @@ function verifyRothBusinessIdentity(actualBusinessId, expectedBusinessId, { requ
   return expectedBusinessId;
 }
 
+function verifyRothSettlementIdentity(item, expectedBusinessId) {
+  if (typeof expectedBusinessId !== 'string' || !expectedBusinessId.trim()) throw new Error('HALO ROTH business identity is not configured.');
+  if (!item || typeof item !== 'object') throw new Error('ROTH returned an invalid settlement record.');
+  const isHaloCounterparty = item.businessId === expectedBusinessId || item.issuingEntityId === expectedBusinessId;
+  if (!isHaloCounterparty) throw new Error('ROTH returned a settlement outside the HALO merchant scope.');
+  return item;
+}
+
 function createRothMerchantClient({ baseUrl, keyId, secret, fetchImpl = fetch, clock = () => new Date(), nonceFactory = randomUUID }) {
   const origin = new URL(baseUrl);
   if (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname))) {
@@ -124,4 +132,4 @@ function haloRothIntegration(client) {
   };
 }
 
-module.exports = { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity };
+module.exports = { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity, verifyRothSettlementIdentity };
