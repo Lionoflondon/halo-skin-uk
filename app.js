@@ -381,10 +381,6 @@ function renderCart() {
   }
 
   $$('.cart-subtotal, #cart-subtotal').forEach(element => { element.textContent = money(total); });
-  const remaining = $('#delivery-remaining');
-  if (remaining) remaining.textContent = money(Math.max(0, 45 - total));
-  const progress = $('.cart-progress span');
-  if (progress) progress.style.width = `${Math.min(100, total / 45 * 100)}%`;
   const empty = $('#cart-empty');
   const footer = $('#cart-footer');
   if (empty) empty.style.display = cart.length ? 'none' : 'block';

@@ -57,10 +57,16 @@ CIRCUM integration contract check (read-only against CIRCUM `origin/main` at `54
 
 Other open launch gates: hosted customer account and order-history acceptance; notifications; hosted inventory acceptance; hosted administrator MFA; recovery exercises; monitoring; App Check configuration/enforcement; accessibility; and a protected release with rollback evidence. All four skincare products remain on commercial hold under the compliance register.
 
+## CIRCUM partner boundary refresh — 25 November 2026
+
+CIRCUM is HALO's required same-day delivery partner and remains a launch-critical integration. Read-only inspection of CIRCUM `origin/main` at `501050b219226c95a7e88008d28516b34e500380` found that its server-to-server Cloud Run callable proxy exposes `createSenderBookingQuote`, which requires a CIRCUM Firebase customer ID token and CIRCUM App Check token. CIRCUM's `createSenderPaidDelivery` callable is bound to CIRCUM Sender's own `senderBookingQuotes` and `senderPaymentSessions`, and validates the CIRCUM payment session before dispatch. HALO cannot safely treat that Sender API as a HALO merchant dispatch endpoint or pass HALO order/payment records to it. No CIRCUM repository or service was changed.
+
+The HALO same-day option remains visible but disabled until CIRCUM and HALO establish an approved partner contract with merchant authentication, server-side quote/eligibility, idempotent post-payment dispatch, tracking/status updates, and failure handling. Storefront copy now says the CIRCUM service is coming soon, removes unverified tracking/proof/notification and free-delivery claims, and states HALO's current standard delivery fee while disclosing that dispatch timing is unconfirmed. A regression test covers these copy and availability controls.
+
 ## Verification refresh — 25 November 2026, 14:37 UTC
 
 - Current checkout of `codex/halo-stage4` is clean at `ddbcbfb9b100ece596afbb46efad19ead5f0a9b2`, tracking `origin/codex/halo-stage4`. GitHub `HALO checks` run [45635189003](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45635189003) passed for that SHA.
-- `npm test` passed all 48 tests (10 storefront/backup/fulfilment and 38 Functions). These are source-level checks only.
+- `npm test` passed all 49 tests (11 storefront/backup/fulfilment and 38 Functions). These are source-level checks only; the additional storefront test locks the accurate £2.99 standard delivery copy and disabled CIRCUM same-day state.
 - Fresh staging checks: Hosting `/` and `/admin` returned HTTP 200; `/api/createCheckoutSession` and `/api/customerOrders` returned HTTP 404. `firebase functions:list --project halo-skin-uk-stg --json` returned an empty result.
 - Read-only GitHub environment inventory showed no HALO staging secrets and only the configured infrastructure/Firebase identifiers and Rothcross Stripe account ID as variables. The required Stripe test key, HALO webhook signing secret, App Check site key, and ROTH merchant credentials are not configured. Values were not read or copied.
 - The browser automation surface is unavailable in this chat, so the shared Rothcross Stripe dashboard and test credential could not be inspected through the user’s browser. No cloud services, credentials, live payments, production configuration, or production deployment were changed in this verification.

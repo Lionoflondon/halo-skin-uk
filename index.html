@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="logo.css?v=5" />
   </head>
   <body class="halo-home">
-    <div class="announcement">Complimentary UK delivery over £45 <span aria-hidden="true">·</span> Same-day London delivery with Circum</div>
+    <div class="announcement">HALO SKIN UK <span aria-hidden="true">·</span> Same-day delivery with CIRCUM coming soon</div>
     <header class="site-header">
       <button class="icon-button menu-button" aria-label="Open menu" aria-controls="menu-drawer" aria-expanded="false" data-menu-open><span></span><span></span></button>
       <a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a>
@@ -76,7 +76,7 @@
     <footer><div class="footer-brand"><a class="brand-logo brand-logo-light footer-mark" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><p>Every woman is an angel.</p></div><div><p>Explore</p><a href="#shop">Shop all</a><a href="#categories">Collections</a><a href="#story">Our story</a></div><div><p>Help</p><a href="mailto:hello@haloskinuk.com">Contact</a><a href="#">Delivery &amp; returns</a><a href="#">FAQs</a></div><div class="footer-meta"><p>© 2026 Halo Skin UK</p><a href="#">Instagram</a><a href="#">TikTok</a></div></footer>
 
     <div class="overlay" data-overlay></div>
-    <aside class="drawer cart-drawer glass-panel" id="cart-drawer" role="dialog" aria-modal="true" aria-label="Shopping bag" aria-hidden="true"><div class="drawer-head"><h3>Your bag <span class="cart-count">(0)</span></h3><button class="icon-button close" data-drawer-close aria-label="Close shopping bag">×</button></div><div class="cart-progress"><span></span><p>Add <b id="delivery-remaining">£45.00</b> more for complimentary delivery</p></div><div class="cart-items" id="cart-items"></div><div class="cart-empty" id="cart-empty"><div class="empty-cloud" aria-hidden="true"></div><p>Your cart is as light as air.</p><a href="#shop" data-drawer-close>Explore the collection →</a></div><div class="cart-footer" id="cart-footer"><label for="discount-code">Discount code</label><div class="discount-row"><input id="discount-code" placeholder="Enter code"><button id="apply-discount">Apply</button></div><div class="subtotal"><span>Subtotal</span><strong id="cart-subtotal">£0.00</strong></div><p>Taxes included. Delivery calculated at checkout.</p><button class="button iridescent-button checkout" id="checkout-button">Checkout securely →</button></div></aside>
+    <aside class="drawer cart-drawer glass-panel" id="cart-drawer" role="dialog" aria-modal="true" aria-label="Shopping bag" aria-hidden="true"><div class="drawer-head"><h3>Your bag <span class="cart-count">(0)</span></h3><button class="icon-button close" data-drawer-close aria-label="Close shopping bag">×</button></div><div class="cart-progress"><p>Standard delivery: £2.99 at checkout.</p></div><div class="cart-items" id="cart-items"></div><div class="cart-empty" id="cart-empty"><div class="empty-cloud" aria-hidden="true"></div><p>Your cart is as light as air.</p><a href="#shop" data-drawer-close>Explore the collection →</a></div><div class="cart-footer" id="cart-footer"><label for="discount-code">Discount code</label><div class="discount-row"><input id="discount-code" placeholder="Enter code"><button id="apply-discount">Apply</button></div><div class="subtotal"><span>Subtotal</span><strong id="cart-subtotal">£0.00</strong></div><p>Delivery shown separately at checkout.</p><button class="button iridescent-button checkout" id="checkout-button">Checkout securely →</button></div></aside>
     <aside class="drawer menu-drawer" id="menu-drawer" role="dialog" aria-modal="true" aria-label="Menu" aria-hidden="true"><div class="drawer-head"><a class="brand-logo" href="#top" aria-label="Halo home"><img src="assets/halo-logo.jpg" alt="Halo"></a><button class="icon-button close" data-drawer-close aria-label="Close menu">×</button></div><nav><a href="#shop" data-drawer-close>Shop <span>01</span></a><a href="#categories" data-drawer-close>Collections <span>02</span></a><a href="#story" data-drawer-close>Our story <span>03</span></a></nav></aside>
     <div class="search-panel glass-panel" id="search-panel" role="dialog" aria-modal="true" aria-label="Search Halo" aria-hidden="true"><button class="icon-button close" data-search-close aria-label="Close search">×</button><p class="eyebrow">Search Halo</p><div><label class="sr-only" for="search-input">Search products</label><input id="search-input" placeholder="What are you looking for?" autocomplete="off"><span aria-hidden="true">↵</span></div><div id="search-results"></div></div>
     <div class="toast" role="status"></div>
@@ -90,18 +90,17 @@
           <div class="delivery-methods" id="delivery-methods">
             <label class="delivery-option" data-method-card="circum">
               <input type="radio" name="deliveryMethod" value="circum" disabled>
-              <span><strong>⚡ Circum Same Day</strong><br><small>Fast local delivery by Circum.<br>London &amp; surrounding service areas.</small></span><b>£4.99</b>
+              <span><strong>⚡ Circum Same Day · Unavailable</strong><br><small>Not available for HALO checkout yet. Eligibility and dispatch integration are pending.</small></span><b>—</b>
             </label>
-            <div class="delivery-benefits">Rider pickup from Halo warehouse · Same-day delivery · Live tracking · Proof of delivery · Delivery notifications</div>
-            <p class="service-area-message" id="service-area-message">Enter your delivery address to check Circum Same Day availability.</p>
+            <p class="service-area-message" id="service-area-message">Circum Same Day is unavailable for HALO checkout at this time.</p>
             <label class="delivery-option" data-method-card="standard">
               <input type="radio" name="deliveryMethod" value="standard" checked>
-              <span><strong>📦 Standard Delivery</strong><br><small>Halo standard shipping.<br>Available nationwide. Normal delivery times apply.</small></span><b>£2.99</b>
+              <span><strong>📦 Standard Delivery</strong><br><small>HALO fulfilment. Dispatch timing is not yet confirmed.</small></span><b>£2.99</b>
             </label>
           </div>
           <button class="button button-dark pay-button" id="checkout-submit" value="default">Continue to secure payment →</button>
           <p class="checkout-note" id="checkout-payment-message" role="status" aria-live="polite">Secure checkout is not configured yet. No payment will be taken.</p>
-          <p class="checkout-note">Circum deliveries are created only after successful payment. Standard orders continue through Halo fulfilment.</p>
+          <p class="checkout-note">Circum delivery remains unavailable until HALO's eligibility and dispatch integration is verified.</p>
         </div>
         <aside class="checkout-summary"><h3>Order summary</h3><div id="checkout-items"></div><div class="summary-line"><span>Subtotal</span><b id="checkout-subtotal">£0.00</b></div><div class="summary-line"><span>Delivery</span><b id="checkout-delivery">£2.99</b></div><div class="summary-line total"><span>Total</span><b id="checkout-total">£0.00</b></div></aside>
       </form>
