@@ -135,7 +135,10 @@ async function initializeCustomerAccount() {
       authApi.onAuthStateChanged(auth, user => {
         customerAuthUser = user;
         renderCustomerAccount();
-        if (user?.emailVerified) { loadCustomerOrders(); loadRothWallet(); }
+        if (user?.emailVerified) {
+          loadCustomerOrders();
+          if (window.HALO_FIREBASE_CONFIG?.rothEnabled === true) loadRothWallet();
+        }
         if (!initialAuthStateLoaded) {
           initialAuthStateLoaded = true;
           resolveInitialAuthState(user);
@@ -162,7 +165,7 @@ function renderCustomerAccount() {
     $('#customer-account-email').textContent = customerAuthUser.email || 'HALO customer';
     $('#customer-verification-message').hidden = verified;
     $('#customer-order-history').hidden = !verified;
-    $('#customer-roth-wallet').hidden = !verified;
+    $('#customer-roth-wallet').hidden = !verified || window.HALO_FIREBASE_CONFIG?.rothEnabled !== true;
     const email = $('#checkout-form [name="email"]');
     if (email && verified) email.value = customerAuthUser.email || '';
   }
@@ -211,7 +214,7 @@ async function loadCustomerOrders() {
 async function loadRothWallet() {
   const status = $('#customer-roth-status');
   const user = customerAuthUser;
-  if (!user?.emailVerified || !status) return;
+  if (!user?.emailVerified || !status || window.HALO_FIREBASE_CONFIG?.rothEnabled !== true) return;
   status.textContent = 'Loading your HALO allocation from ROTH…';
   try {
     const endpoint = window.HALO_DELIVERY_CONFIG?.rothWalletEndpoint;
@@ -230,7 +233,7 @@ async function loadRothWallet() {
 async function startRothWalletLink() {
   const status = $('#customer-roth-status');
   const user = customerAuthUser;
-  if (!user?.emailVerified || !status) return;
+  if (!user?.emailVerified || !status || window.HALO_FIREBASE_CONFIG?.rothEnabled !== true) return;
   status.textContent = 'Requesting a secure link code…';
   try {
     const endpoint = window.HALO_DELIVERY_CONFIG?.rothLinkStartEndpoint;

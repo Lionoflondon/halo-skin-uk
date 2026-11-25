@@ -51,6 +51,11 @@ const money = value => new Intl.NumberFormat('en-GB', { style: 'currency', curre
 const slugify = value => String(value || '').toLowerCase().trim()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+if (firebaseConfig?.rothEnabled !== true) {
+  document.querySelector('[data-admin-tab="rewards"]')?.setAttribute('hidden', '');
+  document.querySelector('[data-admin-panel="rewards"]')?.setAttribute('hidden', '');
+}
+
 async function getProtectedRequestHeaders(user = auth.currentUser, extra = {}) {
   if (!appCheck) throw new Error('Secure request protection is not configured yet.');
   const token = await user?.getIdToken(true);

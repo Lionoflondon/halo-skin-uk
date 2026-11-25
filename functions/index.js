@@ -310,6 +310,7 @@ exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 
   }
 });
 
+if (rothApiOrigin.value() && rothMerchantKeyId.value() && rothBusinessId.value()) {
 exports.rothLinkStart = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
   if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
   response.set('Cache-Control', 'no-store');
@@ -419,6 +420,7 @@ exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2
       error.code || 'roth_settlement_unavailable', error.status ? 'ROTH settlement reporting is unavailable for HALO.' : error.message || 'ROTH merchant reporting is not configured for HALO staging yet.');
   }
 });
+}
 
 exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
   if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to list HALO orders.');
