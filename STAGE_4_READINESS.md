@@ -109,3 +109,10 @@ The manual HALO staging workflow now has independent `hosting-only` and `full-st
 - Commit `ab213fe461806473e342c690fa2bc7b3c26aa9eb` adds a visible `:focus-visible` outline to HALO Admin controls and static checks for programmatic names on storefront/admin controls, keyboard Escape/Tab handling, and reduced-motion styling. The source-level check does not substitute for a rendered keyboard, screen-reader or contrast audit.
 - `npm test` passed 63 tests (21 storefront and 42 Functions). GitHub `HALO checks` passed for source commit `f16398ee99c7eefb14d04c3c5df229dbaa42a58c`: [run 45801575923](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45801575923).
 - After the user's approval to make Codex Browser available, the browser inventory reported a closed transport; creating an `iab` tab for Google Cloud Console also returned `transport closed before response`. Opening the Console through the Codex panel did not return a verifiable tab. No other browser was used. Google key restrictions, API usage/billing, deployed Firestore rules and App Check therefore remain unrefreshed.
+
+### Admin keyboard navigation and CIRCUM contract recheck — 26 November 2026
+
+- Commit `4ceea27247fa7a1162881ef2ad608c9584d93ac7` changes HALO Admin section navigation to tab semantics with synchronized selection, panel visibility, and Left/Right/Home/End keyboard movement. Static accessibility checks cover the source contract; a rendered screen-reader and keyboard audit remains outstanding.
+- `npm test` passed 64 tests (22 storefront and 42 Functions). GitHub `HALO checks` passed for the code commit: [run 45802535858](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45802535858).
+- GitHub read-only API confirms CIRCUM `origin/main` is still `501050b219226c95a7e88008d28516b34e500380`; the inspected interface remains Sender-scoped, with no HALO merchant quote/eligibility/dispatch contract. No CIRCUM repository or service was changed.
+- The Codex Browser transport still closes after the user authorized access. Cloud Console checks and browser acceptance remain blocked; no other browser, deployment, live payment, or production change was made.
