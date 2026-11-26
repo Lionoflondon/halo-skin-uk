@@ -22,3 +22,10 @@ test('checkout country choices match the configured Great Britain shipping scope
   assert.doesNotMatch(countrySelect, /Ireland|France|Germany/);
   assert.match(functions, /shipping_address_collection:\s*\{\s*allowed_countries:\s*\['GB'\]/);
 });
+
+test('footer help links lead to HALO support instead of placeholder pages or unverified profiles', () => {
+  const footer = html.match(/<footer>([\s\S]*?)<\/footer>/)?.[1] || '';
+  assert.match(footer, /href="mailto:hello@haloskinuk\.com\?subject=Delivery%20and%20returns"/);
+  assert.match(footer, /href="mailto:hello@haloskinuk\.com\?subject=Frequently%20asked%20questions"/);
+  assert.doesNotMatch(footer, /href="#"|Instagram|TikTok/);
+});
