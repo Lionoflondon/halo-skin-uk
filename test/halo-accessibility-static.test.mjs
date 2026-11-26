@@ -7,6 +7,7 @@ const admin = readFileSync(new URL('../admin.html', import.meta.url), 'utf8');
 const storefrontCss = readFileSync(new URL('../home-rebuild.css', import.meta.url), 'utf8');
 const adminCss = readFileSync(new URL('../admin.css', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const adminJs = readFileSync(new URL('../admin.js', import.meta.url), 'utf8');
 
 function controlHasLabel(html, tag, attributes, offset) {
   if (/\btype=["']hidden["']/.test(attributes)) return true;
@@ -41,4 +42,15 @@ test('keyboard focus, modal navigation and reduced-motion support are present in
   assert.match(storefrontCss, /prefers-reduced-motion:\s*reduce/);
   assert.match(app, /event\.key === 'Escape'/);
   assert.match(app, /event\.key !== 'Tab'/);
+});
+
+test('admin section navigation exposes tab state and arrow-key movement', () => {
+  assert.match(admin, /role="tablist"/);
+  assert.equal([...admin.matchAll(/role="tab"/g)].length, [...admin.matchAll(/role="tabpanel"/g)].length);
+  assert.match(admin, /aria-selected="true"[\s\S]*aria-controls="admin-panel-products"/);
+  assert.match(admin, /role="tabpanel" aria-labelledby="admin-tab-deliveries"[^>]*hidden/);
+  assert.match(adminJs, /button\.setAttribute\('aria-selected', String\(selected\)\)/);
+  assert.match(adminJs, /panel\.hidden = !selected/);
+  assert.match(adminJs, /\['ArrowLeft', 'ArrowRight', 'Home', 'End'\]/);
+  assert.match(admin, /admin\.js\?v=8/);
 });

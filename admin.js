@@ -86,8 +86,17 @@ function isAllowedAdmin(user) {
 }
 
 function switchTab(name) {
-  $$('.admin-tab').forEach(button => button.classList.toggle('active', button.dataset.adminTab === name));
-  $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.adminPanel === name));
+  $$('.admin-tab').forEach(button => {
+    const selected = button.dataset.adminTab === name;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  $$('[data-admin-panel]').forEach(panel => {
+    const selected = panel.dataset.adminPanel === name;
+    panel.classList.toggle('active', selected);
+    panel.hidden = !selected;
+  });
 }
 
 function previewImage(source) {
@@ -655,6 +664,21 @@ $('#admin-products').addEventListener('click', async event => {
     message($('#product-message'), error.message || 'Stock count could not be saved.', 'error');
   }
 });
-$$('.admin-tab').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.adminTab)));
+$$('.admin-tab').forEach(button => {
+  button.addEventListener('click', () => switchTab(button.dataset.adminTab));
+  button.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = $$('.admin-tab').filter(tab => !tab.hidden);
+    const currentIndex = tabs.indexOf(button);
+    const nextIndex = event.key === 'Home' ? 0
+      : event.key === 'End' ? tabs.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    if (!next) return;
+    event.preventDefault();
+    switchTab(next.dataset.adminTab);
+    next.focus();
+  });
+});
 
 resetProductForm();
