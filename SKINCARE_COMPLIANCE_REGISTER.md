@@ -25,3 +25,7 @@ Record one row per product and evidence item. Keep the source file in the contro
 Do not sell or mark a product compliant until its safety assessment and Product Information File are complete, a UK Responsible Person is documented, the product notification is evidenced, ingredients and mandatory particulars are checked against final packaging, claims are substantiated, and batch traceability is operational. The responsible person or qualified compliance reviewer must sign the evidence register before launch.
 
 Sources for the evidence checklist: [Great Britain cosmetics guidance](https://www.gov.uk/guidance/making-cosmetic-products-available-to-consumers-in-great-britain), [consumer cosmetics guidance](https://www.gov.uk/guidance/consumer-products-cosmetics), [OPSS product notification](https://www.gov.uk/guidance/submit-a-cosmetic-product-notification).
+
+## Evidence inventory refresh — 26 November 2026
+
+A targeted search of this repository found no product safety assessment, Product Information File, Responsible Person appointment, OPSS notification, ingredient/INCI declaration, or final packaging-label evidence files. No evidence was supplied or reviewed in this refresh. The register remains an evidence checklist only, and all four storefront products remain on commercial launch hold. Evidence held outside this repository has not been inspected.
