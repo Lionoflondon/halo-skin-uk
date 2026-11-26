@@ -21,8 +21,9 @@ function controlHasLabel(html, tag, attributes, offset) {
 test('storefront and admin controls have programmatic names', () => {
   for (const [pageName, html] of [['storefront', storefront], ['admin', admin]]) {
     const controls = [...html.matchAll(/<(input|select|textarea)\b([^>]*)>/gi)];
-    for (const [, tag, attributes] of controls) {
-      assert.equal(controlHasLabel(html, tag, attributes, argumentsOffset(html, attributes, tag)), true,
+    for (const control of controls) {
+      const [, tag, attributes] = control;
+      assert.equal(controlHasLabel(html, tag, attributes, control.index), true,
         `${pageName} ${tag} ${attributes.match(/\bid=["']([^"']+)/)?.[1] || ''} needs a label`);
     }
     const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi)];
@@ -33,11 +34,6 @@ test('storefront and admin controls have programmatic names', () => {
     }
   }
 });
-
-function argumentsOffset(html, attributes, tag) {
-  const needle = `<${tag}${attributes}`;
-  return html.indexOf(needle);
-}
 
 test('keyboard focus, modal navigation and reduced-motion support are present in source', () => {
   assert.match(storefrontCss, /:focus-visible/);
