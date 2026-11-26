@@ -9,7 +9,7 @@ const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
 const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
-const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('./halo-order-core');
+const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
@@ -552,7 +552,7 @@ exports.requestHaloRefund = onRequest({ region, invoker: 'public', maxInstances:
       payment_intent: order.paymentIntentId,
       amount: amountPence,
       metadata: { store: 'halo', brand: 'HALO Skin UK', orderId, reason, requestedBy: admin.uid }
-    }, { idempotencyKey: `halo_refund_${hash(requestKey)}` });
+    }, { idempotencyKey: stripeRefundIdempotencyKey(orderId, requestKey) });
     response.set('Cache-Control', 'no-store').status(200).json({ refundId: refund.id, status: refund.status, amountPence: refund.amount, currency: refund.currency });
   } catch (error) {
     sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 503, 'refund_request_failed', error.message || 'Refund could not be requested.');

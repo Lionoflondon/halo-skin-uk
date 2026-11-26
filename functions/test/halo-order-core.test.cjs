@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate } = require('../halo-order-core');
+const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey } = require('../halo-order-core');
 
 const order = { id: 'order_halo_01', status: 'pending_payment', paymentStatus: 'pending', stripeSessionId: 'cs_test_halo_01', totalPence: 3899 };
 function event(type, object) { return { id: 'evt_test_01', type, livemode: false, data: { object } }; }
@@ -88,4 +88,13 @@ test('resolves refunds from PaymentIntent metadata on the shared Rothcross Strip
   assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'cc', orderId } }), null);
   assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'halo', orderId: 'invalid' } }), null);
   assert.equal(haloRefundOrderId('pi_test_other', paymentIntent), null);
+});
+
+test('refund idempotency keys are stable and scoped to the HALO order', () => {
+  const requestKey = 'e6f2bb51-d112-4f57-b8cc-5ff12c773b20';
+  const first = stripeRefundIdempotencyKey('0123456789abcdef0123456789abcdef', requestKey);
+  assert.equal(first, stripeRefundIdempotencyKey('0123456789abcdef0123456789abcdef', requestKey));
+  assert.notEqual(first, stripeRefundIdempotencyKey('abcdef0123456789abcdef0123456789', requestKey));
+  assert.match(first, /^halo_refund_0123456789abcdef0123456789abcdef_[a-f0-9]{64}$/);
+  assert.throws(() => stripeRefundIdempotencyKey('invalid', requestKey), /invalid/);
 });

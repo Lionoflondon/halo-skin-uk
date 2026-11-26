@@ -1,4 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import { getRefundRequestKey } from './admin-refund-idempotency.mjs';
 import {
   browserLocalPersistence,
   EmailAuthProvider,
@@ -289,7 +290,7 @@ function orderActions(order) {
   if (order.status === 'processing' && paid) actions.push('dispatched');
   if (order.status === 'dispatched') actions.push('delivered');
   if (['abandoned', 'refunded'].includes(order.paymentStatus) && ['pending_payment', 'paid', 'processing'].includes(order.status)) actions.push('cancelled');
-  return `${actions.length ? `<button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>` : ''}${paid && !['cancelled', 'pending_payment'].includes(order.status) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}">Refund</button>` : ''}`;
+  return `${actions.length ? `<button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>` : ''}${paid && !['cancelled', 'pending_payment'].includes(order.status) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}" data-refunded-pence="${Number(order.refundedPence) || 0}">Refund</button>` : ''}`;
 }
 
 function renderOrderHistory(history = []) {
@@ -604,7 +605,9 @@ $('#orders').addEventListener('click', async event => {
       const amountPence = Math.round(Number(amount) * 100);
       const reason = window.prompt('Reason for this refund');
       if (!Number.isSafeInteger(amountPence) || amountPence < 1 || !reason) throw new Error('Enter a positive refund amount and reason.');
-      const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() });
+      const refundedPence = Number(refundButton.dataset.refundedPence) || 0;
+      const requestKey = getRefundRequestKey(orderId, refundedPence);
+      const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey });
       const response = await fetch('/api/requestHaloRefund', { method: 'POST', headers, body: JSON.stringify({ orderId, amountPence, reason }) });
       if (!response.ok) throw new Error((await response.json()).message || 'Refund could not be requested.');
     }

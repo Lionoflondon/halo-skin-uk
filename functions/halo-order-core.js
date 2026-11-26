@@ -1,5 +1,15 @@
 'use strict';
 
+const { createHash } = require('node:crypto');
+
+function stripeRefundIdempotencyKey(orderId, requestKey) {
+  if (!/^[a-f0-9]{32}$/.test(String(orderId || '')) || typeof requestKey !== 'string' || requestKey.length < 16 || requestKey.length > 128) {
+    throw new Error('HALO refund order and idempotency key are invalid.');
+  }
+  const digest = createHash('sha256').update(requestKey).digest('hex');
+  return `halo_refund_${orderId}_${digest}`;
+}
+
 function stripeShippingDetails(session) {
   const details = session.collected_information?.shipping_details ?? session.shipping_details;
   const address = details?.address;
@@ -85,4 +95,4 @@ function haloRefundOrderId(paymentIntentId, paymentIntent) {
   return metadata.orderId;
 }
 
-module.exports = { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate };
+module.exports = { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey };
