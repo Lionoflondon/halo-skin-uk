@@ -82,3 +82,9 @@ The manual HALO staging workflow now has independent `hosting-only` and `full-st
 - `npm test` passed 52 tests: 12 storefront/backup/fulfilment and 40 Functions. These are local source tests; they do not prove hosted checkout, delivery, or administration acceptance.
 - A Hosting-only release was deployed to `halo-skin-uk-stg`: release `1795686887053000`, version `e8d5a96d91b45f09`, released `2026-11-26T09:54:47Z`. The explicit command targeted only `hosting` and project `halo-skin-uk-stg`. Firebase warned that all configured API rewrites lack deployed Functions endpoints; `functions:list` is empty, so checkout remains unavailable. No Functions, Firestore rules, Auth, or production service was deployed by this release.
 - The Codex browser inventory still reports no available browser. The staging release metadata is verified, but hosted page content and visual/accessibility behavior were not rechecked in a browser. No alternative browser was used.
+
+### Customer help links and latest Hosting release — 26 November 2026
+
+- Commit `8e8bb2c` replaces footer placeholder links for delivery/returns and FAQs with email links to HALO support, and removes unverified Instagram/TikTok profile links. No delivery or returns policy was invented. The storefront regression test checks these destinations and fails on placeholder `href="#"` links in the footer.
+- `npm test` passed 53 tests (13 storefront/backup/fulfilment and 40 Functions).
+- The follow-up Hosting-only release to `halo-skin-uk-stg` is release `1795687139046000`, version `d5f42b474c55a9fd`, released `2026-11-26T09:58:59Z`. It updated the public help links only. Firebase again warned that the configured Functions rewrites have no deployed endpoints. Checkout remains disabled; no production service was changed.
