@@ -90,3 +90,10 @@ The manual HALO staging workflow now has independent `hosting-only` and `full-st
 - The follow-up Hosting-only release to `halo-skin-uk-stg` is release `1795687139046000`, version `d5f42b474c55a9fd`, released `2026-11-26T09:58:59Z`. It updated the public help links only. Firebase again warned that the configured Functions rewrites have no deployed endpoints. Checkout remains disabled; no production service was changed.
 - GitHub `HALO checks` passed for the current branch head `5b7deb89d2d74c52aa1dafa98c9f32d4d4394926`: [run 45797072494](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45797072494).
 - The subsequent report-only commit `9f61588d95581678a0d0c4da9019971948b259a3` also passed `HALO checks`: [run 45797514375](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45797514375).
+
+### Refund retries and CIRCUM source-status refresh — 26 November 2026
+
+- Commit `f0774df36c1a23c55d7f49f808e74525cfc84bc5` makes the HALO Admin reuse a refund request key for the same order/refund snapshot and scopes Stripe idempotency keys to the HALO order. This reduces duplicate partial-refund risk on retry. It is source-level behavior only; no hosted Stripe refund was attempted. If browser storage is unavailable, the fallback key lasts only for the current page session.
+- Commit `118b04bca0e904134591417595f7a8ae936d8ccd` corrects the README: `server/halo-fulfilment.mjs` is an unconnected prototype, and secure checkout rejects non-standard delivery. CIRCUM remains HALO's required same-day partner; no CIRCUM system or repository was modified.
+- `npm test` passed 60 tests (19 storefront and 41 Functions); `git diff --check` passed. GitHub `HALO checks` passed for `118b04b`: [run 45799471548](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/45799471548).
+- The Codex computer-use inventory returned no browsers. No alternative browser was used. No deployment, credential, live payment, or production change was made.
