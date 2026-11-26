@@ -44,7 +44,7 @@ Checkout requires a physically recorded stock count and reserves units transacti
 
 Until the production Circum service-area endpoint is configured, the local preview resolves the entered postcode through `postcodes.io`, checks its returned region, and validates the entered city against the returned locality. No postcode list is hardcoded.
 
-For a paid Circum order, the handler resolves the active Halo warehouse, creates a warehouse-to-customer Circum delivery, stores the Circum Delivery ID first, broadcasts the request to riders, and moves the order to **Awaiting Rider**. Rider assignment, collection, out-for-delivery and delivered updates are applied through `applyCircumStatusUpdate`.
+`server/halo-fulfilment.mjs` contains an adapter-based fulfilment prototype with unit tests. It is not imported by the deployed Firebase Functions and is not an active delivery integration. Secure checkout currently rejects every non-standard delivery method; no HALO order is quoted or dispatched through CIRCUM. Enable same-day delivery only after a HALO-specific CIRCUM merchant contract provides server-side eligibility, idempotent dispatch, status callbacks and failure recovery, then verify that flow in isolated staging.
 
 Run validation with `npm test`.
 
@@ -56,7 +56,7 @@ The supplied campaign imagery is stored in `assets/`. Replace the image paths in
 
 - Payment code is implemented for test mode, but has not been deployed or exercised against an isolated Stripe test account. No live mode is supported.
 - Test-only refund initiation and webhook recording are implemented locally, but not hosted-tested. Full provider reconciliation and a financial exception workflow are not implemented.
-- The fulfilment helper is adapter based; no standard dispatch adapter, Circum server-side eligibility integration or payment-to-dispatch recovery worker is wired into the checkout functions.
+- `server/halo-fulfilment.mjs` is an unconnected adapter prototype; no standard dispatch adapter, CIRCUM server-side eligibility integration or payment-to-dispatch recovery worker is wired into the checkout functions. CIRCUM remains HALO's required same-day delivery partner.
 - The production Circum service-area endpoint is blank; the postcode lookup fallback is preview-only. Circum credentials, delivery status webhook verification and operational retry/reconciliation are not configured here.
 - Admin order and refund endpoints require recent Firebase MFA claims and the verified allowlisted email; HALO TOTP enrollment/claim behavior is unverified. Independent role management and credential rotation are not implemented.
 - Firestore rules protect the product catalogue and prevent direct client stock changes. The audited stock-count and checkout reservation paths are source-tested, but not hosted-tested. No backup schedule, restore evidence, monitoring/alerting, incident runbook or recovery objective is defined in this repository.

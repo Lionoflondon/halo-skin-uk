@@ -5,6 +5,7 @@ import test from 'node:test';
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 const functions = readFileSync(new URL('../functions/index.js', import.meta.url), 'utf8');
+const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
 test('storefront only describes verified delivery terms and current CIRCUM availability', () => {
   assert.match(html, /Same-day delivery with CIRCUM coming soon/);
@@ -21,6 +22,13 @@ test('checkout country choices match the configured Great Britain shipping scope
   assert.match(countrySelect, /<option>United Kingdom<\/option>/);
   assert.doesNotMatch(countrySelect, /Ireland|France|Germany/);
   assert.match(functions, /shipping_address_collection:\s*\{\s*allowed_countries:\s*\['GB'\]/);
+});
+
+test('CIRCUM fulfilment prototype is not described or wired as an active checkout integration', () => {
+  assert.match(readme, /adapter-based fulfilment prototype[\s\S]*not imported by the deployed Firebase Functions/i);
+  assert.match(readme, /Secure checkout currently rejects every non-standard delivery method/i);
+  assert.match(functions, /if \(deliveryMethod !== 'standard'\) return sendError\(response, 422, 'delivery_unavailable'/);
+  assert.doesNotMatch(functions, /require\(['"]\.\.\/server\/halo-fulfilment|from ['"]\.\.\/server\/halo-fulfilment/);
 });
 
 test('footer help links lead to HALO support instead of placeholder pages or unverified profiles', () => {
