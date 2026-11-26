@@ -60,7 +60,7 @@ The supplied campaign imagery is stored in `assets/`. Replace the image paths in
 - The production Circum service-area endpoint is blank; the postcode lookup fallback is preview-only. Circum credentials, delivery status webhook verification and operational retry/reconciliation are not configured here.
 - Admin order and refund endpoints require recent Firebase MFA claims and the verified allowlisted email; HALO TOTP enrollment/claim behavior is unverified. Independent role management and credential rotation are not implemented.
 - Firestore rules protect the product catalogue and prevent direct client stock changes. The audited stock-count and checkout reservation paths are source-tested, but not hosted-tested. No backup schedule, restore evidence, monitoring/alerting, incident runbook or recovery objective is defined in this repository.
-- Hosting has no automated staging/release workflow, preview environment, rollback procedure, custom domain verification or deployment evidence in this repository.
+- GitHub Actions has manually dispatched staging workflows for Hosting-only/full-staging deployment and Firestore backup setup. The full-staging and backup workflows have not completed hosted acceptance. There is no production release workflow, tested rollback procedure, preview-channel acceptance or current custom-domain verification evidence in this repository.
 - Legal pages, delivery/returns policy, functioning newsletter processing, and analytics/cookie consent are not complete.
 
 These gaps must be closed and verified in an isolated staging project before any live payment activation or production deployment.

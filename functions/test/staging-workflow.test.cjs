@@ -7,6 +7,14 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/deploy-staging.yml'), 'utf8');
+const backupWorkflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/backup-staging.yml'), 'utf8');
+const readme = fs.readFileSync(path.join(__dirname, '../../README.md'), 'utf8');
+
+test('readiness documentation distinguishes manual staging workflows from production release gates', () => {
+  assert.match(readme, /manually dispatched staging workflows[\s\S]*There is no production release workflow/);
+  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.match(backupWorkflow, /^on:\n  workflow_dispatch:/m);
+});
 
 test('HALO deployment stays manual, serialized and behind the staging environment gate', () => {
   assert.match(workflow, /^on:\n  workflow_dispatch:\n    inputs:\n      scope:/m);
