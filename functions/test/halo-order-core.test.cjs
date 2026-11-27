@@ -34,6 +34,19 @@ test('declined and abandoned sessions update payment status without marking an o
   assert.equal(expiredAfterDecline.paymentStatus, 'abandoned');
 });
 
+test('failed payment events must identify HALO and match any linked PaymentIntent', () => {
+  const failedPayment = { id: 'pi_test_halo_01', metadata: sessionMeta };
+  assert.equal(stripeEventOrderUpdate(order, event('payment_intent.payment_failed', failedPayment)).paymentStatus, 'failed');
+  for (const invalid of [
+    { ...failedPayment, metadata: { store: 'cc', orderId: order.id } },
+    { ...failedPayment, metadata: { orderId: order.id } },
+    { ...failedPayment, metadata: { store: 'halo', orderId: 'other_halo_order' } },
+    { ...failedPayment, id: 'pi_test_other_brand' }
+  ]) {
+    assert.throws(() => stripeEventOrderUpdate({ ...order, paymentIntentId: 'pi_test_halo_01' }, event('payment_intent.payment_failed', invalid)), /HALO order/);
+  }
+});
+
 test('rejects live, wrong-store and amount-mismatched events', () => {
   const paidSession = session();
   assert.throws(() => stripeEventOrderUpdate(order, { ...event('checkout.session.completed', paidSession), livemode: true }), /test-mode/);

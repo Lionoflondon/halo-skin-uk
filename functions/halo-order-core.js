@@ -64,7 +64,10 @@ function stripeEventOrderUpdate(order, event) {
   }
 
   if (event.type === 'payment_intent.payment_failed') {
-    if (object.id !== order.paymentIntentId && object.metadata?.orderId !== order.id) throw new Error('Failed payment does not match the HALO order.');
+    if (typeof object.id !== 'string' || !object.id || metadata.store !== 'halo' || metadata.orderId !== order.id ||
+        (order.paymentIntentId && object.id !== order.paymentIntentId)) {
+      throw new Error('Failed payment does not match the HALO order.');
+    }
     if (order.status !== 'pending_payment') return { paymentStatus: order.paymentStatus || 'paid', eventStatus: 'late_failure_ignored' };
     return { paymentStatus: 'failed', eventStatus: 'processed' };
   }
