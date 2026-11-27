@@ -66,7 +66,7 @@ test('hosting-only releases keep payments closed until the full staging configur
   const firebaseConfig = fs.readFileSync(path.join(__dirname, '../../firebase-config.js'), 'utf8');
   assert.match(workflow, /required\.push\('APPCHECK_SITE_KEY'\)/);
   assert.match(workflow, /HALO_HOSTED_CHECKOUT_ENABLED = \$\{JSON\.stringify\(fullStaging\)\}/);
-  assert.match(app, /window\.HALO_HOSTED_CHECKOUT_ENABLED !== true \|\| !endpoint/);
+  assert.match(app, /if \(!syntheticStagingSalesEnabled \|\| !endpoint\)/);
   assert.match(firebaseConfig, /window\.HALO_HOSTED_CHECKOUT_ENABLED = false/);
 });
 

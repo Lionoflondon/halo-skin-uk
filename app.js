@@ -1,3 +1,5 @@
+import { isSyntheticStagingSalesEnabled } from './sales-mode.mjs';
+
 const demoProducts = [
   {
     id: 'demo-1',
@@ -52,6 +54,13 @@ const demoProducts = [
     alt: 'The Halo lip trio in three everyday shades'
   }
 ];
+
+const syntheticStagingSalesEnabled = isSyntheticStagingSalesEnabled({
+  hostname: window.location.hostname,
+  projectId: window.HALO_FIREBASE_CONFIG?.projectId,
+  checkoutEnabled: window.HALO_HOSTED_CHECKOUT_ENABLED,
+  appCheckSiteKey: window.HALO_FIREBASE_CONFIG?.appCheckSiteKey
+});
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -249,15 +258,18 @@ async function startRothWalletLink() {
 }
 
 function productCard(product) {
+  const salesOnHold = !syntheticStagingSalesEnabled;
   const soldOut = product.available === false || !Number.isSafeInteger(product.stockQuantity) || product.stockQuantity < 1;
+  const unavailable = salesOnHold || soldOut;
+  const unavailableLabel = salesOnHold ? 'Sales on hold' : 'Sold out';
   return `<article class="product-card" data-product-id="${escapeHtml(product.id)}" data-product-type="${escapeHtml(product.type)}">
     <div class="product-image">
       ${product.badge ? `<span class="badge">${escapeHtml(product.badge)}</span>` : ''}
       ${product.image
         ? `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.alt || product.title)}" loading="lazy">`
         : `<div class="product-bottle" data-number="${escapeHtml(product.number)}" aria-label="${escapeHtml(product.title)}">HALO</div>`}
-      <button class="quick-add" type="button" data-add="${escapeHtml(product.variantId)}" ${soldOut ? 'disabled' : ''} aria-label="${soldOut ? `${escapeHtml(product.title)} is sold out` : `Add ${escapeHtml(product.title)} to bag`}">
-        ${soldOut ? 'Sold out' : `Quick add ${money(product.price)}`}
+      <button class="quick-add" type="button" data-add="${escapeHtml(product.variantId)}" ${unavailable ? 'disabled' : ''} aria-label="${salesOnHold ? `${escapeHtml(product.title)} sales are on hold` : soldOut ? `${escapeHtml(product.title)} is sold out` : `Add ${escapeHtml(product.title)} to bag`}">
+        ${unavailable ? unavailableLabel : `Quick add ${money(product.price)}`}
       </button>
     </div>
     <div class="product-meta">
@@ -330,7 +342,7 @@ function renderProducts(filter = 'all') {
 
 function addToCart(variantId) {
   const product = products.find(item => item.variantId === variantId);
-  if (!product || product.available === false || !Number.isSafeInteger(product.stockQuantity) || product.stockQuantity < 1) return;
+  if (!syntheticStagingSalesEnabled || !product || product.available === false || !Number.isSafeInteger(product.stockQuantity) || product.stockQuantity < 1) return;
   const cartItem = cart.find(item => item.variantId === variantId);
   if (cartItem) cartItem.quantity += 1;
   else cart.push({ ...product, quantity: 1 });
@@ -386,7 +398,7 @@ function renderCart() {
   if (empty) empty.style.display = cart.length ? 'none' : 'block';
   if (footer) footer.style.display = cart.length ? 'block' : 'none';
   const checkoutButton = $('#checkout-button');
-  if (checkoutButton) checkoutButton.disabled = !cart.length;
+  if (checkoutButton) checkoutButton.disabled = !cart.length || !syntheticStagingSalesEnabled;
 }
 
 function openDrawer(element) {
@@ -548,6 +560,10 @@ async function refreshCircumEligibility() {
 }
 
 function openCheckout() {
+  if (!syntheticStagingSalesEnabled) {
+    toast('HALO sales are on hold. Checkout is available only in configured synthetic staging.');
+    return;
+  }
   if (!cart.length) {
     toast('Your bag is as light as air. Add an essential first.');
     return;
@@ -640,8 +656,8 @@ function bindInteractions() {
     event.preventDefault();
     const message = $('#checkout-payment-message');
     const endpoint = window.HALO_DELIVERY_CONFIG?.checkoutSessionEndpoint;
-    if (window.HALO_HOSTED_CHECKOUT_ENABLED !== true || !endpoint) {
-      if (message) message.textContent = 'Secure checkout is not available yet. No order or payment has been taken.';
+    if (!syntheticStagingSalesEnabled || !endpoint) {
+      if (message) message.textContent = 'HALO sales are on hold. No order or payment has been taken.';
       return;
     }
     const button = $('#checkout-submit');
@@ -821,11 +837,10 @@ async function showStripeReturnStatus() {
 }
 
 const checkoutSubmitButton = $('#checkout-submit');
-const hostedCheckoutEnabled = window.HALO_HOSTED_CHECKOUT_ENABLED === true;
-if (checkoutSubmitButton) checkoutSubmitButton.disabled = !hostedCheckoutEnabled;
-if (!hostedCheckoutEnabled) {
+if (checkoutSubmitButton) checkoutSubmitButton.disabled = !syntheticStagingSalesEnabled;
+if (!syntheticStagingSalesEnabled) {
   const checkoutMessage = $('#checkout-payment-message');
-  if (checkoutMessage) checkoutMessage.textContent = 'Secure checkout is not configured for this site yet. No order or payment will be taken.';
+  if (checkoutMessage) checkoutMessage.textContent = 'HALO sales are on hold. Checkout is available only in configured synthetic staging.';
 }
 
 bindInteractions();
