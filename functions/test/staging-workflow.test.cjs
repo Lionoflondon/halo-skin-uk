@@ -9,6 +9,8 @@ const { execFileSync } = require('node:child_process');
 const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/deploy-staging.yml'), 'utf8');
 const backupWorkflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/backup-staging.yml'), 'utf8');
 const readme = fs.readFileSync(path.join(__dirname, '../../README.md'), 'utf8');
+const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '../../firebase.json'), 'utf8'));
+const firestoreIndexes = JSON.parse(fs.readFileSync(path.join(__dirname, '../../firestore.indexes.json'), 'utf8'));
 
 test('readiness documentation distinguishes manual staging workflows from production release gates', () => {
   assert.match(readme, /manually dispatched staging workflows[\s\S]*There is no production release workflow/);
@@ -25,6 +27,19 @@ test('HALO deployment stays manual, serialized and behind the staging environmen
   assert.match(workflow, /DEPLOY_SCOPE" == "hosting-only"[\s\S]*firebase-tools@[^\s]+ deploy --only hosting --project "\$PROJECT_ID"/);
   assert.match(workflow, /DEPLOY_SCOPE" == "full-staging"[\s\S]*firebase-tools@[^\s]+ deploy --only hosting,functions,firestore:rules,firestore:indexes,auth --project "\$PROJECT_ID"/);
   assert.match(workflow, /if: \$\{\{ inputs\.scope == 'full-staging' \}\}/);
+});
+
+test('pending financial reconciliation is routed to its protected staging Function', () => {
+  const rewrite = firebaseConfig.hosting.rewrites.find(item => item.source === '/api/adminReconcilePendingFinancialEntries');
+  assert.deepEqual(rewrite?.function, { functionId: 'adminReconcilePendingFinancialEntries', region: 'europe-west2' });
+  const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
+  const admin = fs.readFileSync(path.join(__dirname, '../../admin.js'), 'utf8');
+  assert.match(functions, /exports\.adminReconcilePendingFinancialEntries = onRequest\([\s\S]*requireHaloAdmin\(request\)[\s\S]*stripeClient\(\)/);
+  assert.match(functions, /\.where\('brand', '==', 'HALO'\)[\s\S]*\.orderBy\(FieldPath\.documentId\(\)\)[\s\S]*startAfter\(cursor\)/);
+  assert.match(functions, /nextCursor: snapshot\.size === batchSize/);
+  assert.match(admin, /fetch\('\/api\/adminReconcilePendingFinancialEntries'[\s\S]*method: 'POST'[\s\S]*limit: 10[\s\S]*financialReconciliationCursor/);
+  const ledgerIndex = firestoreIndexes.indexes.find(index => index.collectionGroup === 'haloFinancialEntries');
+  assert.deepEqual(ledgerIndex?.fields.map(field => field.fieldPath), ['brand', 'store', 'reconciliationStatus', 'stripeAccountId', '__name__']);
 });
 
 test('hosting-only releases keep payments closed until the full staging configuration passes', () => {
@@ -61,16 +76,16 @@ test('ROTH endpoints are exported only when the three merchant identity settings
 
 test('core HALO Functions load without ROTH settings and ROTH endpoints appear as a complete set', () => {
   const functionsDir = path.join(__dirname, '..');
-  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements}))";
+  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,financialReconcile:!!f.adminReconcilePendingFinancialEntries,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements}))";
   const baseEnv = { ...process.env, GCLOUD_PROJECT: 'halo-skin-uk-stg' };
   delete baseEnv.HALO_ROTH_API_ORIGIN;
   delete baseEnv.HALO_ROTH_MERCHANT_KEY_ID;
   delete baseEnv.HALO_ROTH_BUSINESS_ID;
   const core = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: baseEnv, encoding: 'utf8' }));
-  assert.deepEqual(core, { checkout: true, customer: true, rothWallet: false, rothRewards: false, rothSettlements: false });
+  assert.deepEqual(core, { checkout: true, customer: true, financialReconcile: true, rothWallet: false, rothRewards: false, rothSettlements: false });
   const rothEnv = { ...baseEnv, HALO_ROTH_API_ORIGIN: 'https://roth.example', HALO_ROTH_MERCHANT_KEY_ID: 'halo-stage-key', HALO_ROTH_BUSINESS_ID: 'halo-merchant' };
   const enabled = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: rothEnv, encoding: 'utf8' }));
-  assert.deepEqual(enabled, { checkout: true, customer: true, rothWallet: true, rothRewards: true, rothSettlements: true });
+  assert.deepEqual(enabled, { checkout: true, customer: true, financialReconcile: true, rothWallet: true, rothRewards: true, rothSettlements: true });
 });
 
 test('HALO staging redeploys do not add duplicate secret versions', () => {

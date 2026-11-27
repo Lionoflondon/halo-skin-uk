@@ -98,6 +98,7 @@ h2 { font-size: clamp(30px, 4vw, 44px); }
   justify-content: space-between;
   gap: 24px;
 }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .admin-heading { margin-bottom: 42px; }
 .admin-heading h1 { font-size: clamp(46px, 5vw, 68px); }
 

@@ -75,6 +75,7 @@ const starterProducts = [
 let catalogue = [];
 let unsubscribeProducts = null;
 let editingImage = '';
+let financialReconciliationCursor = null;
 
 function message(element, text, state = '') {
   element.textContent = text;
@@ -336,6 +337,7 @@ async function loadFinancialReport() {
     $('#finance-entries').innerHTML = entries.length
       ? entries.map(entry => `<tr><td>${escapeHtml(entry.sourceType)} · ${escapeHtml(entry.sourceId)}</td><td>${escapeHtml(entry.orderId)}</td><td>${money(Number(entry.grossPence) / 100)}</td><td>${entry.feePence === null ? '—' : money(Number(entry.feePence) / 100)}</td><td>${entry.netPence === null ? '—' : money(Number(entry.netPence) / 100)}</td><td>${escapeHtml(entry.reconciliationStatus)}</td></tr>`).join('')
       : '<tr><td colspan="6" class="empty">No HALO Stripe transactions found.</td></tr>';
+    $('#reconcile-finance').hidden = Number(result.pendingCount) === 0 && result.complete === true;
     notice.textContent = `${result.reconciledCount} reconciled entries · ${result.pendingCount} pending balance transactions. ${result.complete ? 'Totals include all scanned HALO entries.' : `Only the first ${Number(result.scannedCount) || 0} ledger records were scanned; totals are incomplete.`} Reconciled totals exclude pending entries.`;
   } catch (error) {
     notice.textContent = error.message || 'HALO financial reconciliation could not be loaded.';
@@ -563,7 +565,41 @@ $('#product-form').addEventListener('submit', saveProduct);
 $('#reset-product').addEventListener('click', resetProductForm);
 $('#import-products').addEventListener('click', importStarterProducts);
 $('#refresh').addEventListener('click', loadOrders);
-$('#refresh-finance').addEventListener('click', loadFinancialReport);
+$('#refresh-finance').addEventListener('click', () => {
+  financialReconciliationCursor = null;
+  loadFinancialReport();
+});
+$('#reconcile-finance').addEventListener('click', async () => {
+  const button = $('#reconcile-finance');
+  const notice = $('#finance-notice');
+  const user = auth.currentUser;
+  if (!user) {
+    notice.textContent = 'Sign in again to reconcile HALO financial entries.';
+    return;
+  }
+  button.disabled = true;
+  notice.textContent = 'Checking pending HALO Stripe balance transactions…';
+  try {
+    const headers = await getProtectedRequestHeaders(user, { 'Content-Type': 'application/json' });
+    const response = await fetch('/api/adminReconcilePendingFinancialEntries', {
+      method: 'POST', headers,
+      body: JSON.stringify({ limit: 10, ...(financialReconciliationCursor ? { cursor: financialReconciliationCursor } : {}) }),
+      cache: 'no-store'
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+    if (auth.currentUser !== user) return;
+    financialReconciliationCursor = result.nextCursor || null;
+    const outcome = `${result.reconciledCount} updated; ${result.unresolvedCount} still waiting for Stripe; ${result.deferredCount} could not be reconciled.`;
+    await loadFinancialReport();
+    if (result.hasMore) notice.textContent += ` More pending entries remain; run Resolve pending again. ${outcome}`;
+    else notice.textContent += ` ${outcome}`;
+  } catch (error) {
+    notice.textContent = error.message || 'Pending HALO financial entries could not be reconciled.';
+  } finally {
+    button.disabled = false;
+  }
+});
 $('#refresh-roth-settlements').addEventListener('click', loadRothSettlements);
 $('#roth-reward-form').addEventListener('submit', async event => {
   event.preventDefault();

@@ -4,7 +4,7 @@ const { createHash } = require('node:crypto');
 const { getAuth } = require('firebase-admin/auth');
 const { getAppCheck } = require('firebase-admin/app-check');
 const { initializeApp } = require('firebase-admin/app');
-const { FieldValue, getFirestore } = require('firebase-admin/firestore');
+const { FieldPath, FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
 const Stripe = require('stripe');
@@ -13,7 +13,7 @@ const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefund
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
-const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
+const { haloFinancialEntry, pendingHaloFinancialEntry, reconcilePendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
 const { createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
 
 initializeApp();
@@ -492,6 +492,97 @@ exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstanc
   } catch (error) {
     if (error instanceof AdminAccessError) return sendError(response, 403, 'admin_access_required', error.message);
     sendError(response, 503, 'financial_report_unavailable', 'HALO financial reconciliation could not be loaded.');
+  }
+});
+
+exports.adminReconcilePendingFinancialEntries = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 60, secrets: [stripeSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO administrator origin is not allowed.');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to reconcile pending HALO balance transactions.');
+  try {
+    await requireHaloAdmin(request);
+    const batchSize = Number(request.body?.limit ?? 10);
+    const cursor = request.body?.cursor ?? null;
+    if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 25 ||
+        (cursor !== null && (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(cursor)))) {
+      return sendError(response, 422, 'invalid_reconciliation_batch', 'Choose a valid cursor and reconciliation batch from 1 to 25 entries.');
+    }
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    let query = db.collection('haloFinancialEntries')
+      .where('brand', '==', 'HALO')
+      .where('store', '==', 'halo')
+      .where('reconciliationStatus', '==', 'pending_balance_transaction')
+      .where('stripeAccountId', '==', expectedStripeAccountId.value())
+      .orderBy(FieldPath.documentId())
+      .limit(batchSize);
+    if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+    let reconciledCount = 0;
+    let unresolvedCount = 0;
+    let deferredCount = 0;
+    let skippedCount = 0;
+
+    for (const document of snapshot.docs) {
+      const existingEntry = { id: document.id, ...document.data() };
+      if (existingEntry.brand !== 'HALO' || existingEntry.store !== 'halo' ||
+          existingEntry.stripeAccountId !== expectedStripeAccountId.value()) {
+        skippedCount += 1;
+        continue;
+      }
+      const validSource = existingEntry.sourceType === 'charge'
+        ? /^ch_[A-Za-z0-9]+$/.test(existingEntry.sourceId || '')
+        : existingEntry.sourceType === 'refund' && /^re_[A-Za-z0-9]+$/.test(existingEntry.sourceId || '');
+      if (!validSource || !/^pi_[A-Za-z0-9]+$/.test(existingEntry.paymentIntentId || '')) {
+        deferredCount += 1;
+        continue;
+      }
+      try {
+        const [source, paymentIntent] = await Promise.all([
+          existingEntry.sourceType === 'charge'
+            ? stripe.charges.retrieve(existingEntry.sourceId)
+            : stripe.refunds.retrieve(existingEntry.sourceId),
+          stripe.paymentIntents.retrieve(existingEntry.paymentIntentId)
+        ]);
+        const balanceTransaction = await resolveBalanceTransaction(stripe, source);
+        if (!balanceTransaction) {
+          unresolvedCount += 1;
+          continue;
+        }
+        const reconciledEntry = reconcilePendingHaloFinancialEntry({
+          existingEntry, source, paymentIntent, balanceTransaction,
+          stripeAccountId: expectedStripeAccountId.value()
+        });
+        const outcome = await db.runTransaction(async transaction => {
+          const currentSnapshot = await transaction.get(document.ref);
+          if (!currentSnapshot.exists) return 'changed';
+          const current = currentSnapshot.data();
+          if (current.reconciliationStatus === 'reconciled') return 'already_reconciled';
+          if (current.reconciliationStatus !== 'pending_balance_transaction' ||
+              current.sourceId !== existingEntry.sourceId || current.paymentIntentId !== existingEntry.paymentIntentId ||
+              current.orderId !== existingEntry.orderId || current.grossPence !== existingEntry.grossPence) return 'changed';
+          transaction.update(document.ref, { ...reconciledEntry, updatedAt: FieldValue.serverTimestamp() });
+          return 'reconciled';
+        });
+        if (outcome === 'reconciled' || outcome === 'already_reconciled') reconciledCount += 1;
+        else skippedCount += 1;
+      } catch (_) {
+        deferredCount += 1;
+      }
+    }
+
+    response.set('Cache-Control', 'no-store').status(200).json({
+      scannedCount: snapshot.size,
+      reconciledCount,
+      unresolvedCount,
+      deferredCount,
+      skippedCount,
+      hasMore: snapshot.size === batchSize,
+      nextCursor: snapshot.size === batchSize ? snapshot.docs[snapshot.docs.length - 1].id : null
+    });
+  } catch (error) {
+    if (error instanceof AppCheckAccessError || error instanceof AdminAccessError) return sendError(response, 403, 'admin_access_required', error.message);
+    sendError(response, 503, 'financial_reconciliation_unavailable', 'Pending HALO financial entries could not be reconciled.');
   }
 });
 

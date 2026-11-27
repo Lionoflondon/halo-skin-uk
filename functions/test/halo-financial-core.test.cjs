@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge } = require('../halo-financial-core');
+const { haloFinancialEntry, pendingHaloFinancialEntry, reconcilePendingHaloFinancialEntry, validateHaloCharge } = require('../halo-financial-core');
 
 const base = {
   id: 'txn_test_1', amount: 2500, fee: 70, net: 2430, currency: 'gbp',
@@ -35,6 +35,30 @@ test('keeps unresolved balance transactions visible without inventing fees', () 
   assert.equal(entry.reconciliationStatus, 'pending_balance_transaction');
   assert.equal(entry.feePence, null);
   assert.equal(entry.netPence, null);
+});
+
+test('reconciles a pending charge only against its matching HALO PaymentIntent and amount', () => {
+  const existingEntry = pendingHaloFinancialEntry({ ...metadata, grossPence: 2500 });
+  const paymentIntent = { id: 'pi_test_1', metadata: { store: 'halo', orderId: 'a'.repeat(32) } };
+  const charge = { id: 'ch_test_1', payment_intent: paymentIntent.id, paid: true, status: 'succeeded', amount_captured: 2500 };
+  const resolved = reconcilePendingHaloFinancialEntry({ existingEntry, source: charge, paymentIntent, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId });
+  assert.equal(resolved.reconciliationStatus, 'reconciled');
+  assert.equal(resolved.balanceTransactionId, base.id);
+  assert.equal(resolved.netPence, 2430);
+  assert.throws(() => reconcilePendingHaloFinancialEntry({ existingEntry, source: { ...charge, amount_captured: 2400 }, paymentIntent, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId }), /does not match/);
+  assert.throws(() => reconcilePendingHaloFinancialEntry({ existingEntry, source: charge, paymentIntent: { ...paymentIntent, metadata: { store: 'cc', orderId: 'a'.repeat(32) } }, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId }), /does not match/);
+});
+
+test('reconciles a pending refund only against its matching HALO PaymentIntent and negative amount', () => {
+  const refundMetadata = { ...metadata, sourceType: 'refund', sourceId: 're_test_1' };
+  const existingEntry = pendingHaloFinancialEntry({ ...refundMetadata, grossPence: -1000 });
+  const paymentIntent = { id: 'pi_test_1', metadata: { store: 'halo', orderId: 'a'.repeat(32) } };
+  const refund = { id: 're_test_1', payment_intent: paymentIntent.id, amount: 1000 };
+  const transaction = { ...base, id: 'txn_refund_1', amount: -1000, fee: 0, net: -1000, reporting_category: 'refund' };
+  const resolved = reconcilePendingHaloFinancialEntry({ existingEntry, source: refund, paymentIntent, balanceTransaction: transaction, stripeAccountId: metadata.stripeAccountId });
+  assert.equal(resolved.grossPence, -1000);
+  assert.equal(resolved.netPence, -1000);
+  assert.throws(() => reconcilePendingHaloFinancialEntry({ existingEntry, source: { ...refund, amount: 900 }, paymentIntent, balanceTransaction: transaction, stripeAccountId: metadata.stripeAccountId }), /does not match/);
 });
 
 test('accepts a charge only when its currency, captured amount and PaymentIntent match the HALO order', () => {

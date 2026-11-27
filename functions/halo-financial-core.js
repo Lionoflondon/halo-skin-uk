@@ -40,6 +40,43 @@ function pendingHaloFinancialEntry({ stripeAccountId, orderId, sourceType, sourc
   };
 }
 
+function reconcilePendingHaloFinancialEntry({ existingEntry, source, paymentIntent, balanceTransaction, stripeAccountId }) {
+  if (!existingEntry || existingEntry.brand !== 'HALO' || existingEntry.store !== 'halo' ||
+      existingEntry.reconciliationStatus !== 'pending_balance_transaction' ||
+      !['charge', 'refund'].includes(existingEntry.sourceType) ||
+      typeof existingEntry.sourceId !== 'string' || !existingEntry.sourceId ||
+      !/^[a-f0-9]{32}$/.test(String(existingEntry.orderId || '')) ||
+      existingEntry.stripeAccountId !== stripeAccountId ||
+      !source || source.id !== existingEntry.sourceId || !paymentIntent ||
+      paymentIntent.id !== existingEntry.paymentIntentId ||
+      paymentIntent.metadata?.store !== 'halo' || paymentIntent.metadata?.orderId !== existingEntry.orderId) {
+    throw new Error('Pending financial entry does not match a HALO Stripe source.');
+  }
+
+  const sourcePaymentIntentId = typeof source.payment_intent === 'string'
+    ? source.payment_intent : source.payment_intent?.id;
+  if (sourcePaymentIntentId !== paymentIntent.id) throw new Error('Stripe source PaymentIntent does not match the HALO ledger entry.');
+
+  const expectedGrossPence = existingEntry.sourceType === 'charge'
+    ? source.amount_captured
+    : -source.amount;
+  if (!Number.isSafeInteger(expectedGrossPence) || existingEntry.grossPence !== expectedGrossPence ||
+      (existingEntry.sourceType === 'charge' && (source.paid !== true || source.status !== 'succeeded')) ||
+      (existingEntry.sourceType === 'refund' && (!Number.isSafeInteger(source.amount) || source.amount < 1))) {
+    throw new Error('Stripe source amount does not match the pending HALO financial entry.');
+  }
+
+  return haloFinancialEntry({
+    balanceTransaction,
+    stripeAccountId,
+    orderId: existingEntry.orderId,
+    sourceType: existingEntry.sourceType,
+    sourceId: existingEntry.sourceId,
+    paymentIntentId: paymentIntent.id,
+    expectedGrossPence
+  });
+}
+
 function validateHaloCharge({ charge, order, paymentIntentId }) {
   if (!charge || !order || order.brand !== 'HALO' || order.currency !== 'GBP' ||
       typeof paymentIntentId !== 'string' || !paymentIntentId ||
@@ -52,4 +89,4 @@ function validateHaloCharge({ charge, order, paymentIntentId }) {
   return true;
 }
 
-module.exports = { haloFinancialEntry, pendingHaloFinancialEntry, validateHaloCharge };
+module.exports = { haloFinancialEntry, pendingHaloFinancialEntry, reconcilePendingHaloFinancialEntry, validateHaloCharge };

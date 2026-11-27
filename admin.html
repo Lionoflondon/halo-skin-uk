@@ -122,7 +122,10 @@
         <section class="admin-section" id="admin-panel-finance" role="tabpanel" aria-labelledby="admin-tab-finance" tabindex="0" hidden data-admin-panel="finance">
           <div class="panel-heading">
             <div><p class="eyebrow">ROTHCROSS · SHARED STRIPE ACCOUNT</p><h2>HALO financial reconciliation</h2></div>
-            <button class="secondary-button" id="refresh-finance" type="button">Refresh</button>
+            <div class="panel-actions">
+              <button class="secondary-button" id="reconcile-finance" type="button" hidden>Resolve pending</button>
+              <button class="secondary-button" id="refresh-finance" type="button">Refresh</button>
+            </div>
           </div>
           <p class="notice" id="finance-notice">This report includes HALO-labelled Stripe transactions only and keeps them separate from CORPVS CHRISTI and other Rothcross businesses.</p>
           <p class="catalogue-summary" id="finance-account">Waiting for a secure staging reconciliation.</p>
@@ -170,6 +173,6 @@
 
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
-    <script type="module" src="admin.js?v=8"></script>
+    <script type="module" src="admin.js?v=10"></script>
   </body>
 </html>

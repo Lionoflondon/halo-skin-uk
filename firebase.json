@@ -76,6 +76,7 @@
       { "source": "/api/rothSettlements", "function": { "functionId": "rothSettlements", "region": "europe-west2" } },
       { "source": "/api/adminOrders", "function": { "functionId": "adminOrders", "region": "europe-west2" } },
       { "source": "/api/adminFinancialReport", "function": { "functionId": "adminFinancialReport", "region": "europe-west2" } },
+      { "source": "/api/adminReconcilePendingFinancialEntries", "function": { "functionId": "adminReconcilePendingFinancialEntries", "region": "europe-west2" } },
       { "source": "/api/updateHaloOrder", "function": { "functionId": "updateHaloOrder", "region": "europe-west2" } },
       { "source": "/api/requestHaloRefund", "function": { "functionId": "requestHaloRefund", "region": "europe-west2" } },
       { "source": "/api/setHaloStockCount", "function": { "functionId": "setHaloStockCount", "region": "europe-west2" } }
