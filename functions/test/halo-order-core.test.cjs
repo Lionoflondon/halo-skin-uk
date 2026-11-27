@@ -28,6 +28,10 @@ test('declined and abandoned sessions update payment status without marking an o
     id: order.stripeSessionId, metadata: sessionMeta
   }));
   assert.equal(abandoned.paymentStatus, 'abandoned');
+  const expiredAfterDecline = stripeEventOrderUpdate({ ...order, paymentStatus: 'failed' }, event('checkout.session.expired', {
+    id: order.stripeSessionId, metadata: sessionMeta
+  }));
+  assert.equal(expiredAfterDecline.paymentStatus, 'abandoned');
 });
 
 test('rejects live, wrong-store and amount-mismatched events', () => {

@@ -51,6 +51,16 @@ test('HALO Admin cancellation expires and verifies unpaid staging Checkout Sessi
   assert.match(core, /session\.livemode !== false[\s\S]*session\.status !== 'expired'[\s\S]*session\.payment_status === 'paid'[\s\S]*metadata\?\.store !== 'halo'/);
 });
 
+test('checkout status reconciliation persists a paid test session and commits inventory idempotently', () => {
+  const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
+  const endpoint = functions.slice(functions.indexOf('exports.getCheckoutStatus ='), functions.indexOf('exports.stripeWebhook ='));
+  assert.match(endpoint, /session\.payment_status === 'paid'[\s\S]*checkout_paid_status_\$\{session\.id\}[\s\S]*db\.runTransaction/);
+  assert.match(endpoint, /stripeEventOrderUpdate\(current, statusCheckEvent\)[\s\S]*update\.status === 'paid'[\s\S]*commitReservedInventory/);
+  assert.match(endpoint, /transaction\.create\(eventRef,[\s\S]*source: 'checkout_status_check'/);
+  assert.match(endpoint, /session\.status === 'expired' && \['pending', 'failed'\]/);
+  assert.match(endpoint, /paymentStatus: paymentState/);
+});
+
 test('hosting-only releases keep payments closed until the full staging configuration passes', () => {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const firebaseConfig = fs.readFileSync(path.join(__dirname, '../../firebase-config.js'), 'utf8');

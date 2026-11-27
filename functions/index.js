@@ -736,29 +736,68 @@ exports.getCheckoutStatus = onRequest({ region, invoker: 'public', maxInstances:
     if (session.metadata?.store !== 'halo' || !session.metadata?.orderId) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
     const snapshot = await db.collection('haloOrders').doc(session.metadata.orderId).get();
     if (!snapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
-    const order = snapshot.data();
-    if (order.stripeSessionId !== session.id || session.currency !== 'gbp' || session.amount_total !== order.totalPence) return sendError(response, 409, 'payment_mismatch', 'Stripe session does not match the HALO order.');
-    let paymentState = order.paymentStatus || 'pending';
-    if (session.status === 'expired' && paymentState === 'pending') {
-      const eventId = `checkout_expired_${session.id}`;
+    const order = { id: session.metadata.orderId, ...snapshot.data() };
+    if (order.brand !== 'HALO' || order.stripeSessionId !== session.id || session.currency !== 'gbp' || session.amount_total !== order.totalPence) return sendError(response, 409, 'payment_mismatch', 'Stripe session does not match the HALO order.');
+    let currentOrder = order;
+    if (session.payment_status === 'paid') {
+      const eventId = `checkout_paid_status_${session.id}`;
       const eventRef = db.collection('haloStripeEvents').doc(eventId);
-      await db.runTransaction(async transaction => {
+      const statusCheckEvent = { id: eventId, type: 'checkout.session.completed', livemode: false, data: { object: session } };
+      currentOrder = await db.runTransaction(async transaction => {
         const orderRef = db.collection('haloOrders').doc(session.metadata.orderId);
         const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(orderRef)]);
-        if (!orderSnapshot.exists) return;
-        const current = orderSnapshot.data();
-        if (current.stripeSessionId !== session.id || current.paymentStatus !== 'pending') return;
-        const inventoryPatch = await releaseReservedInventory(transaction, orderRef, { id: orderRef.id, ...current }, 'checkout_session_expired');
-        if (!eventSnapshot.exists) transaction.create(eventRef, { type: 'checkout.session.expired', orderId: session.metadata.orderId, status: 'processed_by_status_check', createdAt: FieldValue.serverTimestamp() });
-        transaction.update(orderRef, { ...inventoryPatch, paymentStatus: 'abandoned', updatedAt: FieldValue.serverTimestamp() });
+        if (!orderSnapshot.exists) throw new Error('HALO order not found.');
+        const current = { id: orderRef.id, ...orderSnapshot.data() };
+        if (current.brand !== 'HALO' || current.stripeSessionId !== session.id) throw new Error('HALO order changed while payment was being reconciled.');
+        if (eventSnapshot.exists) return current;
+        const update = stripeEventOrderUpdate(current, statusCheckEvent);
+        if (current.status === 'cancelled' && update.eventStatus === 'duplicate_payment_ignored') {
+          throw new Error('Stripe reports payment for a cancelled HALO order; manual financial review is required.');
+        }
+        const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.status === 'paid'
+          ? await commitReservedInventory(transaction, orderRef, current)
+          : {};
+        Object.assign(patch, inventoryPatch);
+        if (Object.keys(patch).length) transaction.update(orderRef, {
+          ...patch, updatedAt: FieldValue.serverTimestamp(), ...(patch.status === 'paid' ? { paidAt: FieldValue.serverTimestamp() } : {})
+        });
+        transaction.create(eventRef, {
+          type: 'checkout.session.completed', orderId: orderRef.id, status: eventStatus,
+          source: 'checkout_status_check', createdAt: FieldValue.serverTimestamp()
+        });
+        return { ...current, ...patch };
       });
-      paymentState = 'abandoned';
+    } else if (session.status === 'expired' && ['pending', 'failed'].includes(order.paymentStatus || 'pending')) {
+      const eventId = `checkout_expired_${session.id}`;
+      const eventRef = db.collection('haloStripeEvents').doc(eventId);
+      const statusCheckEvent = { id: eventId, type: 'checkout.session.expired', livemode: false, data: { object: session } };
+      currentOrder = await db.runTransaction(async transaction => {
+        const orderRef = db.collection('haloOrders').doc(session.metadata.orderId);
+        const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(orderRef)]);
+        if (!orderSnapshot.exists) throw new Error('HALO order not found.');
+        const current = { id: orderRef.id, ...orderSnapshot.data() };
+        if (current.brand !== 'HALO' || current.stripeSessionId !== session.id) throw new Error('HALO order changed while expiry was being reconciled.');
+        if (eventSnapshot.exists) return current;
+        const update = stripeEventOrderUpdate(current, statusCheckEvent);
+        const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.paymentStatus === 'abandoned'
+          ? await releaseReservedInventory(transaction, orderRef, current, 'checkout_session_expired')
+          : {};
+        Object.assign(patch, inventoryPatch);
+        if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
+        transaction.create(eventRef, {
+          type: 'checkout.session.expired', orderId: orderRef.id, status: eventStatus,
+          source: 'checkout_status_check', createdAt: FieldValue.serverTimestamp()
+        });
+        return { ...current, ...patch };
+      });
     }
-    const paid = session.payment_status === 'paid';
+    const paymentState = currentOrder.paymentStatus || 'pending';
     response.set('Cache-Control', 'no-store').status(200).json({
-      paymentStatus: paid ? 'paid' : session.status === 'expired' ? 'abandoned' : 'pending',
-      orderStatus: paid ? (order.status === 'pending_payment' ? 'paid' : order.status) : order.status,
-      paymentState: paid ? 'paid' : paymentState
+      paymentStatus: paymentState,
+      orderStatus: currentOrder.status,
+      paymentState
     });
   } catch (_) { sendError(response, 503, 'status_unavailable', 'Payment status is still being confirmed. Try again shortly.'); }
 });

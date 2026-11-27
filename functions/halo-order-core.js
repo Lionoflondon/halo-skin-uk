@@ -57,6 +57,9 @@ function stripeEventOrderUpdate(order, event) {
   if (event.type === 'checkout.session.expired') {
     if (object.id !== order.stripeSessionId) throw new Error('Expired Stripe session does not match the HALO order.');
     if (order.status !== 'pending_payment') return { paymentStatus: order.paymentStatus || 'paid', eventStatus: 'late_expiry_ignored' };
+    if (!['pending', 'failed'].includes(order.paymentStatus || 'pending')) {
+      return { paymentStatus: order.paymentStatus, eventStatus: 'duplicate_expiry_ignored' };
+    }
     return { paymentStatus: 'abandoned', eventStatus: 'processed' };
   }
 
