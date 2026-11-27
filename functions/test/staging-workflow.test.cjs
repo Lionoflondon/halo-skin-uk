@@ -109,16 +109,16 @@ test('HALO administrator refunds route through the order original tender and exp
 
 test('core HALO Functions load without ROTH settings and ROTH endpoints appear as a complete set', () => {
   const functionsDir = path.join(__dirname, '..');
-  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,financialReconcile:!!f.adminReconcilePendingFinancialEntries,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements,rothCheckout:!!f.createRothOrder,rothRefund:!!f.requestHaloRothRefund}))";
+  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,financialReconcile:!!f.adminReconcilePendingFinancialEntries,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements,rothCheckout:!!f.createRothOrder,rothRefund:!!f.requestHaloRothRefund,orderSecrets:(f.updateHaloOrder.__endpoint.secretEnvironmentVariables||[]).map(item=>item.key)}))";
   const baseEnv = { ...process.env, GCLOUD_PROJECT: 'halo-skin-uk-stg' };
   delete baseEnv.HALO_ROTH_API_ORIGIN;
   delete baseEnv.HALO_ROTH_MERCHANT_KEY_ID;
   delete baseEnv.HALO_ROTH_BUSINESS_ID;
   const core = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: baseEnv, encoding: 'utf8' }));
-  assert.deepEqual(core, { checkout: true, customer: true, financialReconcile: true, rothWallet: false, rothRewards: false, rothSettlements: false, rothCheckout: false, rothRefund: false });
+  assert.deepEqual(core, { checkout: true, customer: true, financialReconcile: true, rothWallet: false, rothRewards: false, rothSettlements: false, rothCheckout: false, rothRefund: false, orderSecrets: ['STRIPE_SECRET_KEY'] });
   const rothEnv = { ...baseEnv, HALO_ROTH_API_ORIGIN: 'https://roth.example', HALO_ROTH_MERCHANT_KEY_ID: 'halo-stage-key', HALO_ROTH_BUSINESS_ID: 'halo-merchant' };
   const enabled = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: rothEnv, encoding: 'utf8' }));
-  assert.deepEqual(enabled, { checkout: true, customer: true, financialReconcile: true, rothWallet: true, rothRewards: true, rothSettlements: true, rothCheckout: true, rothRefund: true });
+  assert.deepEqual(enabled, { checkout: true, customer: true, financialReconcile: true, rothWallet: true, rothRewards: true, rothSettlements: true, rothCheckout: true, rothRefund: true, orderSecrets: ['STRIPE_SECRET_KEY', 'HALO_ROTH_MERCHANT_SECRET'] });
 });
 
 test('HALO staging redeploys do not add duplicate secret versions', () => {
