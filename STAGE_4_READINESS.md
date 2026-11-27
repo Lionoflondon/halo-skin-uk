@@ -1,5 +1,13 @@
 # HALO Stage 4 evidence and remaining gates
 
+## Shared Rothcross Stripe brand isolation — 27 November 2026
+
+- HALO's checkout now requires both Stripe metadata fields `store=halo` and `brand=HALO Skin UK` on Checkout Sessions and PaymentIntents before its webhook, cancellation, refund attribution, or pending-ledger reconciliation will accept a transaction. HALO order, webhook-event, and financial-ledger records remain in HALO-specific Firestore collections; checkout/refund idempotency keys are HALO-prefixed. Tests explicitly reject CORPVS CHRISTI brand metadata and missing brand metadata.
+- Read-only inspection of the separate `cc-authenticity` checkout source found CORPVS CHRISTI uses its own `orders`/`stripeEvents` collections and `cc_checkout_` idempotency prefix. Its Checkout Session/PaymentIntent metadata contains its own order and delivery references, without HALO's `store=halo` marker. HALO therefore ignores those events. The CORPVS CHRISTI repository/worktree was not changed.
+- Codex Browser showed the signed-in Stripe test sandbox **Rothcross ltd sandbox**, account `acct_1UVzZNGixLdvM11b`. Its visible test API key list had one full-access secret key; its value was not copied or reused. The webhook endpoint list did not load, so endpoint separation is not dashboard-verified.
+- Firebase CLI confirms HALO staging (`halo-skin-uk-stg`) currently has **zero deployed Functions**. No HALO Stripe credential or webhook secret is installed or used. Thus this is source-level separation proof only; hosted transaction acceptance remains blocked until HALO-specific staging credentials and a distinct HALO webhook endpoint are provisioned and tested. No live Stripe settings, CC resources, or production services changed.
+- Verification after the dual-marker change: `npm test` passed 100 tests (34 storefront and 66 Functions), zero failures/skips; `node --check functions/index.js` and `git diff --check` passed. Commit `685a7a7` contains the source/test change.
+
 ## API error-response hardening — 27 November 2026
 
 - Catch-all failures in HALO Admin order listing, Stripe refund initiation and stock-count recording now return stable generic messages instead of raw database/provider exception text. ROTH wallet, reward and settlement endpoints no longer echo unexpected transport errors, and untrusted ROTH error codes are normalized before returning them. Expected App Check and administrator-authentication denials keep their actionable responses. Payment, inventory and order-state transitions are unchanged.
