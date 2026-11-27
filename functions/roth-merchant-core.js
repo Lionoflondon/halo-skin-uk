@@ -57,7 +57,9 @@ function createRothMerchantClient({ baseUrl, keyId, secret, fetchImpl = fetch, c
     if (!response.ok) {
       const error = new Error(String(payload.title || payload.code || `ROTH API returned ${response.status}`));
       error.status = response.status;
-      error.code = String(payload.code || 'roth_api_error');
+      error.code = typeof payload.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(payload.code)
+        ? payload.code
+        : 'roth_api_error';
       throw error;
     }
     return payload;

@@ -2,8 +2,8 @@
 
 ## API error-response hardening — 27 November 2026
 
-- Catch-all failures in HALO Admin order listing, Stripe refund initiation, and stock-count recording now return stable generic messages instead of exposing raw Firestore or payment-provider exception text. Expected App Check and administrator-authentication denials retain their actionable 403 messages. This does not change payment, inventory, or order state transitions.
-- `npm test` completed successfully; the Functions suite reports 58/58 passing. `node --check functions/index.js` and `git diff --check` passed. This is local source verification; the staging project still has no deployed Functions, so the hosted response behavior remains unverified.
+- Catch-all failures in HALO Admin order listing, Stripe refund initiation and stock-count recording now return stable generic messages instead of raw database/provider exception text. ROTH wallet, reward and settlement endpoints no longer echo unexpected transport errors, and untrusted ROTH error codes are normalized before returning them. Expected App Check and administrator-authentication denials keep their actionable responses. Payment, inventory and order-state transitions are unchanged.
+- `npm test` passed; the Functions suite reports 59/59 passing, including a regression test for malformed upstream error codes. This is local source verification; the staging project still has no deployed Functions, so hosted response behavior remains unverified.
 
 ## Source update — 27 November 2026
 

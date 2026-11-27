@@ -341,7 +341,7 @@ exports.rothLinkStart = onRequest({ region, invoker: 'public', maxInstances: 2, 
     if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
     if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
     sendError(response, error.status === 403 ? 403 : error.status === 404 ? 409 : 503,
-      error.code || 'roth_link_unavailable', error.status ? 'ROTH could not start wallet linking. Try again shortly.' : error.message || 'ROTH wallet linking is not configured for HALO staging yet.');
+      error.code || 'roth_link_unavailable', error.status ? 'ROTH could not start wallet linking. Try again shortly.' : 'ROTH wallet linking is not configured or is temporarily unavailable for HALO.');
   }
 });
 
@@ -366,7 +366,7 @@ exports.rothWallet = onRequest({ region, invoker: 'public', maxInstances: 2, tim
     if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
     if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
     sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : 503,
-      error.code || 'roth_wallet_unavailable', error.status ? 'Your ROTH wallet could not be read. If you have not linked it yet, start linking first.' : error.message || 'ROTH wallet services are not configured for HALO staging yet.');
+      error.code || 'roth_wallet_unavailable', error.status ? 'Your ROTH wallet could not be read. If you have not linked it yet, start linking first.' : 'ROTH wallet services are not configured or are temporarily unavailable for HALO.');
   }
 });
 
@@ -535,7 +535,7 @@ exports.rothIssueReward = onRequest({ region, invoker: 'public', maxInstances: 2
     response.set('Cache-Control', 'no-store').status(200).json({ status: 'issued', journalId: result.id || result.journalId || null });
   } catch (error) {
     sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : error.status === 409 ? 409 : 503,
-      error.code || 'roth_reward_unavailable', error.status ? 'ROTH did not accept this reward. Check the HALO merchant scope and staging allowance.' : error.message || 'ROTH reward issuance is not configured for HALO staging yet.');
+      error.code || 'roth_reward_unavailable', error.status ? 'ROTH did not accept this reward. Check the HALO merchant scope and staging allowance.' : 'ROTH reward issuance is not configured or is temporarily unavailable for HALO.');
   }
 });
 
@@ -564,7 +564,7 @@ exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2
     if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
     if (error instanceof AdminAccessError) return sendError(response, 401, 'admin_auth_required', error.message);
     sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : 503,
-      error.code || 'roth_settlement_unavailable', error.status ? 'ROTH settlement reporting is unavailable for HALO.' : error.message || 'ROTH merchant reporting is not configured for HALO staging yet.');
+      error.code || 'roth_settlement_unavailable', error.status ? 'ROTH settlement reporting is unavailable for HALO.' : 'ROTH merchant reporting is not configured or is temporarily unavailable for HALO.');
   }
 });
 

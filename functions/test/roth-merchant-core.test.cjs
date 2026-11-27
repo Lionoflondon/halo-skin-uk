@@ -57,6 +57,18 @@ test('surfaces safe ROTH error code and status while refusing unreadable respons
   await assert.rejects(unreadable.integration('balance', { externalId: 'uid' }), /unreadable response/);
 });
 
+test('normalizes malformed upstream ROTH error codes before returning them to callers', async () => {
+  const client = createRothMerchantClient({
+    baseUrl: 'https://roth.example', keyId: 'id', secret: 'secret',
+    fetchImpl: async () => response({ title: 'Internal detail', code: 'credential\nleak' }, false, 502)
+  });
+  await assert.rejects(client.integration('balance', { externalId: 'uid' }), error => {
+    assert.equal(error.status, 502);
+    assert.equal(error.code, 'roth_api_error');
+    return true;
+  });
+});
+
 test('uses stable, operation-scoped HALO references for rewards, orders and refunds', async () => {
   const calls = [];
   const client = {
