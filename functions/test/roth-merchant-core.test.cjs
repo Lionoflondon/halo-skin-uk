@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash, createHmac } = require('node:crypto');
-const { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity } = require('../roth-merchant-core');
+const { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity, verifyRothSettlementIdentity } = require('../roth-merchant-core');
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
@@ -95,5 +95,18 @@ test('pins returned ROTH company identity to HALO and rejects an unverified wall
   assert.throws(() => verifyRothBusinessIdentity('corpvs-christi', 'halo-merchant', { requireActual: true }), /different Rothcross business/);
   assert.throws(() => verifyRothBusinessIdentity('', 'halo-merchant', { requireActual: true }), /did not return/);
   assert.throws(() => verifyRothBusinessIdentity('', ''), /not configured/);
+});
+
+test('accepts settlement rows where HALO is either issuer or redeeming merchant only', () => {
+  const outgoing = { businessId: 'circum', issuingEntityId: 'halo-merchant' };
+  const incoming = { businessId: 'halo-merchant', issuingEntityId: 'rothcross-clearing' };
+  const selfRedemption = { businessId: 'halo-merchant', issuingEntityId: 'halo-merchant' };
+  assert.equal(verifyRothSettlementIdentity(outgoing, 'halo-merchant'), outgoing);
+  assert.equal(verifyRothSettlementIdentity(incoming, 'halo-merchant'), incoming);
+  assert.equal(verifyRothSettlementIdentity(selfRedemption, 'halo-merchant'), selfRedemption);
+  assert.throws(() => verifyRothSettlementIdentity({ businessId: 'circum', issuingEntityId: 'corpus-christi' }, 'halo-merchant'), /outside the HALO merchant scope/);
+  assert.throws(() => verifyRothSettlementIdentity({ businessId: '', issuingEntityId: '' }, 'halo-merchant'), /outside the HALO merchant scope/);
+  assert.throws(() => verifyRothSettlementIdentity(null, 'halo-merchant'), /invalid settlement record/);
+  assert.throws(() => verifyRothSettlementIdentity(outgoing, ''), /identity is not configured/);
 });
 

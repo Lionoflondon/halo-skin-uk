@@ -1,5 +1,11 @@
 # HALO Stage 4 evidence and remaining gates
 
+## Isolated ROTH settlement adapter correction — 25 November 2026
+
+- On the isolated `codex/halo-settlement-identity` branch, the HALO settlement endpoint now accepts a ROTH settlement row when HALO is either the redeeming `businessId` or original funding `issuingEntityId`. This includes valid outgoing issuer obligations while still rejecting rows unrelated to HALO. Contract tests cover incoming, outgoing, self-redemption, unrelated and malformed rows.
+- Updated Firebase Admin to 14.5.1 and Firebase Functions to 7.4.0 on the existing Node 22 runtime; Functions 7.4.0 declares compatibility with Admin 14. The codebase does not use the removed `functions.config()` API. `npm audit --prefix functions` reported zero vulnerabilities. The full local suite passed: 10 storefront/backup tests and 39 Functions tests. These are local source tests, not a hosted integration or deployment.
+- No HALO staging merchant record, credential, issuance, ROTH API call or deployment was created. Checkout remains Stripe-only; this change only corrects the settlement statement filter and does not enable ROTH redemption at checkout.
+
 ## Latest source verification — 25 November 2026
 
 - Latest financial-ledger source is pushed on `codex/halo-stage4` at `c2037c93908247b4c3a59228b491d5f38751e747`. Stripe `charge.succeeded` and `charge.refunded` events write one source record per HALO charge/refund, keyed by the Stripe object ID, with the shared Rothcross account ID and HALO order attribution. The charge is validated against the exact HALO order, currency, captured amount, and PaymentIntent. Gross, fee and net come from Stripe GBP balance transactions; amounts awaiting a balance transaction remain pending without invented fee or net. A recent-MFA/App Check protected admin endpoint and Finance tab report HALO-only totals and transactions. This is code-level work only; it has not been deployed or reconciled against hosted Stripe data.
