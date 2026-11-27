@@ -84,9 +84,6 @@ function savedCart() {
 
 let products = [];
 let cart = savedCart();
-let appliedDiscount = '';
-let checkoutSubtotal = 0;
-let checkoutDiscount = 0;
 let activeFilter = 'all';
 let activeOverlayOpener = null;
 let firebaseAppPromise = null;
@@ -491,7 +488,7 @@ function renderCheckoutTotals() {
   if (!window.HaloDelivery?.METHODS) return;
   const method = window.HaloDelivery.METHODS[selectedDeliveryMethod()];
   if (!method) return;
-  const subtotal = checkoutSubtotal - checkoutDiscount;
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const delivery = method.price;
   const subtotalElement = $('#checkout-subtotal');
   const deliveryElement = $('#checkout-delivery');
@@ -568,8 +565,6 @@ function openCheckout() {
     toast('Your bag is as light as air. Add an essential first.');
     return;
   }
-  checkoutSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  checkoutDiscount = appliedDiscount === 'HALO10' ? checkoutSubtotal * 0.1 : 0;
   const standard = $('input[value="standard"]');
   if (standard) standard.checked = true;
   const items = $('#checkout-items');
@@ -631,16 +626,6 @@ function bindInteractions() {
     const message = $('.form-message', event.currentTarget);
     if (message) message.textContent = 'Welcome to our orbit. Check your inbox soon.';
     event.currentTarget.reset();
-  });
-
-  $('#apply-discount')?.addEventListener('click', () => {
-    const input = $('#discount-code');
-    const code = input?.value.trim().toUpperCase();
-    if (!code) return;
-    if (code === 'HALO10') {
-      appliedDiscount = code;
-      toast('HALO10 applied: 10% off');
-    } else toast('That discount code is not recognised');
   });
 
   $$('input[name="deliveryMethod"]').forEach(input => input.addEventListener('change', renderCheckoutTotals));

@@ -14,7 +14,7 @@ Then open `http://localhost:4173`.
 
 ## Commerce behaviour
 
-Products, filtering, search, persistent cart, quantities, discount entry, free-delivery progress and a multi-section checkout experience run directly in Halo. Published product data is loaded from the managed Firebase catalogue, with the original records in `app.js` retained as a resilient fallback.
+Products, filtering, search, persistent cart, quantities and a multi-section checkout experience run directly in Halo. Published product data is loaded from the managed Firebase catalogue, with the original records in `app.js` retained as a resilient fallback.
 
 ## Halo Admin catalogue
 
