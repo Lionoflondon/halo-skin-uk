@@ -2,6 +2,7 @@
 window.HALO_DELIVERY_CONFIG = {
   serviceAreaEndpoint: '',
   checkoutSessionEndpoint: '/api/createCheckoutSession',
+  rothCheckoutEndpoint: '/api/createRothOrder',
   checkoutStatusEndpoint: '/api/getCheckoutStatus',
   customerOrdersEndpoint: '/api/customerOrders',
   rothLinkStartEndpoint: '/api/rothLinkStart',

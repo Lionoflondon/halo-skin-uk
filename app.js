@@ -175,6 +175,15 @@ function renderCustomerAccount() {
     const email = $('#checkout-form [name="email"]');
     if (email && verified) email.value = customerAuthUser.email || '';
   }
+  const paymentOptions = $('#checkout-payment-method');
+  if (paymentOptions) {
+    paymentOptions.hidden = !verified || window.HALO_FIREBASE_CONFIG?.rothEnabled !== true;
+    if (paymentOptions.hidden) {
+      const card = $('input[name="paymentMethod"][value="stripe"]');
+      if (card) card.checked = true;
+    }
+  }
+  updateCheckoutPaymentLabel();
   const openButton = $('[data-account-open]');
   if (openButton) openButton.textContent = verified ? 'Account' : signedIn ? 'Verify email' : 'Sign in';
 }
@@ -484,6 +493,15 @@ function selectedDeliveryMethod() {
   return $('input[name="deliveryMethod"]:checked')?.value || 'standard';
 }
 
+function selectedPaymentMethod() {
+  return $('input[name="paymentMethod"]:checked')?.value || 'stripe';
+}
+
+function updateCheckoutPaymentLabel() {
+  const button = $('#checkout-submit');
+  if (button) button.textContent = selectedPaymentMethod() === 'roth' ? 'Pay with HALO ROTH credits' : 'Continue to secure card payment →';
+}
+
 function renderCheckoutTotals() {
   if (!window.HaloDelivery?.METHODS) return;
   const method = window.HaloDelivery.METHODS[selectedDeliveryMethod()];
@@ -629,6 +647,7 @@ function bindInteractions() {
   });
 
   $$('input[name="deliveryMethod"]').forEach(input => input.addEventListener('change', renderCheckoutTotals));
+  $$('input[name="paymentMethod"]').forEach(input => input.addEventListener('change', updateCheckoutPaymentLabel));
   ['address', 'city', 'postcode'].forEach(name => {
     $(`#checkout-form [name="${name}"]`)?.addEventListener('input', () => {
       clearTimeout(areaCheckTimer);
@@ -640,24 +659,38 @@ function bindInteractions() {
   $('#checkout-form')?.addEventListener('submit', async event => {
     event.preventDefault();
     const message = $('#checkout-payment-message');
-    const endpoint = window.HALO_DELIVERY_CONFIG?.checkoutSessionEndpoint;
+    const paymentMethod = selectedPaymentMethod();
+    const rothCheckout = paymentMethod === 'roth';
+    const endpoint = rothCheckout
+      ? window.HALO_DELIVERY_CONFIG?.rothCheckoutEndpoint
+      : window.HALO_DELIVERY_CONFIG?.checkoutSessionEndpoint;
     if (!syntheticStagingSalesEnabled || !endpoint) {
       if (message) message.textContent = 'HALO sales are on hold. No order or payment has been taken.';
       return;
     }
     const button = $('#checkout-submit');
     if (button) button.disabled = true;
-    if (message) message.textContent = 'Opening secure Stripe checkout…';
+    if (message) message.textContent = rothCheckout ? 'Confirming your HALO ROTH payment…' : 'Opening secure Stripe checkout…';
     try {
-      const payload = JSON.stringify({
+      const payloadData = {
         items: cart.map(item => ({ id: item.id, variantId: item.variantId, quantity: item.quantity })),
         email: $('#checkout-form [name="email"]')?.value.trim(),
         deliveryMethod: selectedDeliveryMethod()
-      });
+      };
       try { await initializeCustomerAccount(); await customerAuthStateReady; }
       catch (_) { /* Guest checkout remains available when customer Auth is unavailable. */ }
       const linkedCustomer = customerAuthUser?.emailVerified ? customerAuthUser : null;
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${payload}\n${linkedCustomer?.uid || ''}`));
+      if (rothCheckout && !linkedCustomer) throw new Error('Sign in and verify your HALO account before paying with ROTH credits.');
+      if (rothCheckout) payloadData.shippingDetails = {
+        firstName: $('#checkout-form [name="firstName"]')?.value.trim(),
+        lastName: $('#checkout-form [name="lastName"]')?.value.trim(),
+        address: $('#checkout-form [name="address"]')?.value.trim(),
+        city: $('#checkout-form [name="city"]')?.value.trim(),
+        postcode: $('#checkout-form [name="postcode"]')?.value.trim(),
+        country: $('#checkout-form [name="country"]')?.value
+      };
+      const payload = JSON.stringify(payloadData);
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${paymentMethod}\n${payload}\n${linkedCustomer?.uid || ''}`));
       const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
       const storageKey = `halo_checkout_request:${fingerprint}`;
       const requestKey = sessionStorage.getItem(storageKey) || crypto.randomUUID();
@@ -673,8 +706,25 @@ function bindInteractions() {
         body: payload
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || typeof result.url !== 'string' || !result.url.startsWith('https://checkout.stripe.com/')) {
+      if (!response.ok) {
+        if (rothCheckout && ['insufficient_balance', 'identity_not_linked', 'reservation_expired'].includes(result.error)) sessionStorage.removeItem(storageKey);
+        throw new Error(result.message || 'Secure checkout is temporarily unavailable. Please try again.');
+      }
+      if (rothCheckout) {
+        if (result.paymentStatus !== 'paid' || typeof result.orderId !== 'string') {
+          throw new Error('ROTH has not confirmed payment yet. Retry this same checkout attempt or contact HALO support.');
+        }
         sessionStorage.removeItem(storageKey);
+        cart = [];
+        localStorage.removeItem('halo_cart');
+        renderCart();
+        $('#checkout-modal')?.close();
+        toast('ROTH payment confirmed. HALO has received your order.');
+        if (linkedCustomer) loadCustomerOrders();
+        loadRothWallet();
+        return;
+      }
+      if (typeof result.url !== 'string' || !result.url.startsWith('https://checkout.stripe.com/')) {
         throw new Error(result.message || 'Secure checkout is temporarily unavailable. Please try again.');
       }
       window.location.assign(result.url);

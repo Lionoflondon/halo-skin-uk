@@ -44,9 +44,10 @@ test('pending financial reconciliation is routed to its protected staging Functi
 
 test('HALO Admin cancellation expires and verifies unpaid staging Checkout Sessions before releasing stock', () => {
   const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
-  assert.match(functions, /exports\.updateHaloOrder = onRequest\([\s\S]*secrets: \[stripeSecret\]/);
+  assert.match(functions, /exports\.updateHaloOrder = onRequest\([\s\S]*secrets: \[stripeSecret,/);
   assert.match(functions, /stripe\.checkout\.sessions\.retrieve\(initialOrder\.stripeSessionId\)[\s\S]*stripe\.checkout\.sessions\.expire\(initialOrder\.stripeSessionId\)[\s\S]*validatePendingCheckoutCancellation/);
-  assert.match(functions, /verifiedExpiredSession[\s\S]*releaseReservedInventory\(transaction, orderRef[\s\S]*'admin_cancelled'/);
+  assert.match(functions, /verifiedPaymentReleased[\s\S]*releaseReservedInventory\(transaction, orderRef[\s\S]*'admin_cancelled'/);
+  assert.match(functions, /paymentProvider === 'roth'[\s\S]*roth\.reserve[\s\S]*roth\.cancel[\s\S]*reservation_cancelled/);
   const core = fs.readFileSync(path.join(__dirname, '../halo-order-core.js'), 'utf8');
   assert.match(core, /session\.livemode !== false[\s\S]*session\.status !== 'expired'[\s\S]*session\.payment_status === 'paid'[\s\S]*metadata\?\.store !== 'halo'/);
 });
@@ -91,20 +92,33 @@ test('HALO ROTH staging is optional for core deployment but all merchant setting
 test('ROTH endpoints are exported only when the three merchant identity settings exist', () => {
   const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
   assert.match(functions, /if \(rothApiOrigin\.value\(\) && rothMerchantKeyId\.value\(\) && rothBusinessId\.value\(\)\)\s*\{\s*exports\.rothLinkStart/);
+  for (const endpoint of ['createRothOrder', 'requestHaloRothRefund']) assert.match(functions, new RegExp(`exports\\.${endpoint} = onRequest`));
+  for (const endpoint of ['/api/createRothOrder', '/api/requestHaloRothRefund']) {
+    assert.ok(firebaseConfig.hosting.rewrites.some(item => item.source === endpoint), `${endpoint} Hosting rewrite is required`);
+  }
+});
+
+test('HALO administrator refunds route through the order original tender and expose its provider', () => {
+  const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
+  const admin = fs.readFileSync(path.join(__dirname, '../../admin.js'), 'utf8');
+  assert.match(functions, /exports\.adminOrders[\s\S]*paymentProvider: order\.paymentProvider \|\| 'stripe'/);
+  assert.match(functions, /exports\.updateHaloOrder = onRequest\([\s\S]*rothApiOrigin\.value\(\)[\s\S]*\[rothMerchantSecret\]/);
+  assert.match(admin, /data-payment-provider="\$\{escapeHtml\(order\.paymentProvider \|\| 'stripe'\)\}"/);
+  assert.match(admin, /refundButton\.dataset\.paymentProvider === 'roth' \? '\/api\/requestHaloRothRefund' : '\/api\/requestHaloRefund'/);
 });
 
 test('core HALO Functions load without ROTH settings and ROTH endpoints appear as a complete set', () => {
   const functionsDir = path.join(__dirname, '..');
-  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,financialReconcile:!!f.adminReconcilePendingFinancialEntries,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements}))";
+  const probe = "const f=require('./index'); console.log(JSON.stringify({checkout:!!f.createCheckoutSession,customer:!!f.customerOrders,financialReconcile:!!f.adminReconcilePendingFinancialEntries,rothWallet:!!f.rothWallet,rothRewards:!!f.rothIssueReward,rothSettlements:!!f.rothSettlements,rothCheckout:!!f.createRothOrder,rothRefund:!!f.requestHaloRothRefund}))";
   const baseEnv = { ...process.env, GCLOUD_PROJECT: 'halo-skin-uk-stg' };
   delete baseEnv.HALO_ROTH_API_ORIGIN;
   delete baseEnv.HALO_ROTH_MERCHANT_KEY_ID;
   delete baseEnv.HALO_ROTH_BUSINESS_ID;
   const core = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: baseEnv, encoding: 'utf8' }));
-  assert.deepEqual(core, { checkout: true, customer: true, financialReconcile: true, rothWallet: false, rothRewards: false, rothSettlements: false });
+  assert.deepEqual(core, { checkout: true, customer: true, financialReconcile: true, rothWallet: false, rothRewards: false, rothSettlements: false, rothCheckout: false, rothRefund: false });
   const rothEnv = { ...baseEnv, HALO_ROTH_API_ORIGIN: 'https://roth.example', HALO_ROTH_MERCHANT_KEY_ID: 'halo-stage-key', HALO_ROTH_BUSINESS_ID: 'halo-merchant' };
   const enabled = JSON.parse(execFileSync(process.execPath, ['-e', probe], { cwd: functionsDir, env: rothEnv, encoding: 'utf8' }));
-  assert.deepEqual(enabled, { checkout: true, customer: true, financialReconcile: true, rothWallet: true, rothRewards: true, rothSettlements: true });
+  assert.deepEqual(enabled, { checkout: true, customer: true, financialReconcile: true, rothWallet: true, rothRewards: true, rothSettlements: true, rothCheckout: true, rothRefund: true });
 });
 
 test('HALO staging redeploys do not add duplicate secret versions', () => {

@@ -72,6 +72,8 @@
       { "source": "/api/customerOrders", "function": { "functionId": "customerOrders", "region": "europe-west2" } },
       { "source": "/api/rothLinkStart", "function": { "functionId": "rothLinkStart", "region": "europe-west2" } },
       { "source": "/api/rothWallet", "function": { "functionId": "rothWallet", "region": "europe-west2" } },
+      { "source": "/api/createRothOrder", "function": { "functionId": "createRothOrder", "region": "europe-west2" } },
+      { "source": "/api/requestHaloRothRefund", "function": { "functionId": "requestHaloRothRefund", "region": "europe-west2" } },
       { "source": "/api/rothIssueReward", "function": { "functionId": "rothIssueReward", "region": "europe-west2" } },
       { "source": "/api/rothSettlements", "function": { "functionId": "rothSettlements", "region": "europe-west2" } },
       { "source": "/api/adminOrders", "function": { "functionId": "adminOrders", "region": "europe-west2" } },

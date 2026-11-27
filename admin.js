@@ -300,7 +300,7 @@ function orderActions(order) {
   if (order.status === 'processing' && paid) actions.push('dispatched');
   if (order.status === 'dispatched') actions.push('delivered');
   if (['abandoned', 'refunded'].includes(order.paymentStatus) && ['pending_payment', 'paid', 'processing'].includes(order.status)) actions.push('cancelled');
-  return `${actions.length ? `<button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>` : ''}${paid && !['cancelled', 'pending_payment'].includes(order.status) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}" data-refunded-pence="${Number(order.refundedPence) || 0}">Refund</button>` : ''}`;
+  return `${actions.length ? `<button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>` : ''}${paid && !['cancelled', 'pending_payment'].includes(order.status) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}" data-payment-provider="${escapeHtml(order.paymentProvider || 'stripe')}" data-refunded-pence="${Number(order.refundedPence) || 0}">Refund</button>` : ''}`;
 }
 
 function renderOrderHistory(history = []) {
@@ -653,7 +653,8 @@ $('#orders').addEventListener('click', async event => {
       const refundedPence = Number(refundButton.dataset.refundedPence) || 0;
       const requestKey = getRefundRequestKey(orderId, refundedPence);
       const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey });
-      const response = await fetch('/api/requestHaloRefund', { method: 'POST', headers, body: JSON.stringify({ orderId, amountPence, reason }) });
+      const refundEndpoint = refundButton.dataset.paymentProvider === 'roth' ? '/api/requestHaloRothRefund' : '/api/requestHaloRefund';
+      const response = await fetch(refundEndpoint, { method: 'POST', headers, body: JSON.stringify({ orderId, amountPence, reason }) });
       if (!response.ok) throw new Error((await response.json()).message || 'Refund could not be requested.');
     }
     await loadOrders();

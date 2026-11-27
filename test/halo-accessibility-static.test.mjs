@@ -52,5 +52,5 @@ test('admin section navigation exposes tab state and arrow-key movement', () => 
   assert.match(adminJs, /button\.setAttribute\('aria-selected', String\(selected\)\)/);
   assert.match(adminJs, /panel\.hidden = !selected/);
   assert.match(adminJs, /\['ArrowLeft', 'ArrowRight', 'Home', 'End'\]/);
-  assert.match(admin, /admin\.js\?v=10/);
+  assert.match(admin, /admin\.js\?v=11/);
 });

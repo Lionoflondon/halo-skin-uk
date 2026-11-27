@@ -98,7 +98,12 @@
               <span><strong>📦 Standard Delivery</strong><br><small>HALO fulfilment. Dispatch timing is not yet confirmed.</small></span><b>£2.99</b>
             </label>
           </div>
-          <button class="button button-dark pay-button" id="checkout-submit" value="default">Continue to secure payment →</button>
+          <fieldset class="delivery-methods" id="checkout-payment-method" hidden>
+            <legend>Payment</legend>
+            <label class="delivery-option"><input type="radio" name="paymentMethod" value="stripe" checked><span><strong>Card</strong><br><small>Pay securely through Rothcross Stripe.</small></span></label>
+            <label class="delivery-option"><input type="radio" name="paymentMethod" value="roth"><span><strong>ROTH credits</strong><br><small>Use your full HALO allocation. Split card and ROTH payments are not available.</small></span></label>
+          </fieldset>
+          <button class="button button-dark pay-button" id="checkout-submit" value="default">Continue to secure card payment →</button>
           <p class="checkout-note" id="checkout-payment-message" role="status" aria-live="polite">Secure checkout is not configured yet. No payment will be taken.</p>
           <p class="checkout-note">Circum delivery remains unavailable until HALO's eligibility and dispatch integration is verified.</p>
         </div>
@@ -151,6 +156,6 @@
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
     <script src="delivery.js"></script>
-    <script src="app.js?v=20261125-roth-wallet"></script>
+    <script src="app.js?v=20261127-roth-checkout"></script>
   </body>
 </html>

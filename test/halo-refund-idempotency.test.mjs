@@ -50,5 +50,5 @@ test('rejects malformed refund order snapshots', () => {
 });
 
 test('admin page cache key advances when refund retry logic changes', () => {
-  assert.match(adminHtml, /admin\.js\?v=10/);
+  assert.match(adminHtml, /admin\.js\?v=11/);
 });
