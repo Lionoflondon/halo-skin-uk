@@ -671,7 +671,8 @@ exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, 
     }));
     response.set('Cache-Control', 'no-store').status(200).json({ orders });
   } catch (error) {
-    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 503, 'admin_orders_unavailable', error.message || 'HALO orders could not be loaded.');
+    const denied = error instanceof AppCheckAccessError || error instanceof AdminAccessError;
+    sendError(response, denied ? 403 : 503, 'admin_orders_unavailable', denied ? error.message : 'HALO orders could not be loaded. Try again shortly.');
   }
 });
 
@@ -930,7 +931,8 @@ exports.requestHaloRefund = onRequest({ region, invoker: 'public', maxInstances:
     }, { idempotencyKey: stripeRefundIdempotencyKey(orderId, requestKey) });
     response.set('Cache-Control', 'no-store').status(200).json({ refundId: refund.id, status: refund.status, amountPence: refund.amount, currency: refund.currency });
   } catch (error) {
-    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 503, 'refund_request_failed', error.message || 'Refund could not be requested.');
+    const denied = error instanceof AppCheckAccessError || error instanceof AdminAccessError;
+    sendError(response, denied ? 403 : 503, 'refund_request_failed', denied ? error.message : 'The HALO refund could not be requested. Check its status before retrying.');
   }
 });
 
@@ -976,8 +978,9 @@ exports.setHaloStockCount = onRequest({ region, invoker: 'public', maxInstances:
     });
     response.set('Cache-Control', 'no-store').status(200).json(result);
   } catch (error) {
-    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 422,
-      'stock_count_failed', error.message || 'HALO stock count could not be saved.');
+    const denied = error instanceof AppCheckAccessError || error instanceof AdminAccessError;
+    sendError(response, denied ? 403 : 503, 'stock_count_failed',
+      denied ? error.message : 'The HALO stock count could not be saved. Check the product and reservation state before retrying.');
   }
 });
 
