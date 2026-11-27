@@ -6,6 +6,10 @@
 - `npm test` passed; the Functions suite reports 59/59 passing, including a regression test for malformed upstream error codes. GitHub Actions [run 46064794093](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/46064794093) passed for commit `5a92d05`. This is source/CI verification; the staging project still has no deployed Functions, so hosted response behavior remains unverified.
 - The current `npm audit --prefix functions --omit=dev` attempt could not reach `registry.npmjs.org` because DNS resolution failed. Current dependency advisories remain unverified; no dependency change was made.
 
+## Local dependency isolation — 27 November 2026
+
+- This checkout's ignored `functions/node_modules/firebase-admin`, `firebase-functions`, and `stripe` entries are symlinks into `/Users/jason/Documents/Codex/2026-10-29/codex-master-handoff-corpvs-christi-luxury-2/functions/node_modules`. The linked versions (14.5.0, 7.4.0, 23.1.0) do not match HALO's manifest/lockfile ranges (13.4.x, 6.4.x, 18.2.x); local `npm ls --prefix functions --depth=0` reports them as invalid. These shared links were left untouched to avoid modifying that separate checkout. GitHub Actions run 46065048762 performed `npm ci` from HALO's lockfile and passed `npm test`, so that clean CI run is the authoritative dependency-backed test evidence for commit `726fefc`.
+
 ## Source update — 27 November 2026
 
 - Commit `fbd5e92e73d13148c731cc1bdffb818b6ddae346` is present in `Lionoflondon/halo-skin-uk` on `codex/halo-stage4` (GitHub commit lookup confirmed it). It adds a HALO ROTH checkout path for the full server-priced order total, including standard delivery; verified customer email, App Check, authenticated Firebase UID, HALO merchant identity, ROTH reserve/confirm/receipt checks, stable retries, and inventory commit only after matching ROTH confirmation. HALO Admin refunds route through the original tender and verify a posted ROTH refund receipt. Pending ROTH cancellation verifies a cancellation receipt before releasing reserved stock. Stripe checkout remains a separate tender and its existing tests pass.
