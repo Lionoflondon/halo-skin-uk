@@ -2,6 +2,13 @@
 
 const { createHash } = require('node:crypto');
 
+const HALO_STRIPE_STORE = 'halo';
+const HALO_STRIPE_BRAND = 'HALO Skin UK';
+
+function isHaloStripeMetadata(metadata) {
+  return metadata?.store === HALO_STRIPE_STORE && metadata?.brand === HALO_STRIPE_BRAND;
+}
+
 function stripeRefundIdempotencyKey(orderId, requestKey) {
   if (!/^[a-f0-9]{32}$/.test(String(orderId || '')) || typeof requestKey !== 'string' || requestKey.length < 16 || requestKey.length > 128) {
     throw new Error('HALO refund order and idempotency key are invalid.');
@@ -15,7 +22,7 @@ function validatePendingCheckoutCancellation(order, session, orderId) {
       typeof order.stripeSessionId !== 'string' || !order.stripeSessionId ||
       !session || session.id !== order.stripeSessionId || session.livemode !== false ||
       session.status !== 'expired' || session.payment_status === 'paid' ||
-      session.metadata?.store !== 'halo' || session.metadata?.orderId !== orderId) {
+      !isHaloStripeMetadata(session.metadata) || session.metadata?.orderId !== orderId) {
     throw new Error('Stripe has not confirmed an expired, unpaid Checkout Session for this HALO order.');
   }
   return true;
@@ -40,7 +47,7 @@ function stripeEventOrderUpdate(order, event) {
   if (!order || !event || event.livemode !== false) throw new Error('Only a test-mode Stripe event can update a HALO staging order.');
   const object = event.data?.object;
   const metadata = object?.metadata || {};
-  if (metadata.store !== 'halo' || metadata.orderId !== order.id) throw new Error('Stripe event does not identify this HALO order.');
+  if (!isHaloStripeMetadata(metadata) || metadata.orderId !== order.id) throw new Error('Stripe event does not identify this HALO order.');
 
   if (event.type === 'checkout.session.completed') {
     if (object.id !== order.stripeSessionId || object.currency !== 'gbp' || object.amount_total !== order.totalPence) throw new Error('Stripe payment does not match the HALO order.');
@@ -64,7 +71,7 @@ function stripeEventOrderUpdate(order, event) {
   }
 
   if (event.type === 'payment_intent.payment_failed') {
-    if (typeof object.id !== 'string' || !object.id || metadata.store !== 'halo' || metadata.orderId !== order.id ||
+    if (typeof object.id !== 'string' || !object.id || !isHaloStripeMetadata(metadata) || metadata.orderId !== order.id ||
         (order.paymentIntentId && object.id !== order.paymentIntentId)) {
       throw new Error('Failed payment does not match the HALO order.');
     }
@@ -108,8 +115,8 @@ function stripeRefundOrderUpdate(order, charge) {
 function haloRefundOrderId(paymentIntentId, paymentIntent) {
   if (!paymentIntentId || paymentIntent?.id !== paymentIntentId) return null;
   const metadata = paymentIntent.metadata || {};
-  if (metadata.store !== 'halo' || !/^[a-f0-9]{32}$/.test(String(metadata.orderId || ''))) return null;
+  if (!isHaloStripeMetadata(metadata) || !/^[a-f0-9]{32}$/.test(String(metadata.orderId || ''))) return null;
   return metadata.orderId;
 }
 
-module.exports = { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation };
+module.exports = { HALO_STRIPE_BRAND, HALO_STRIPE_STORE, haloRefundOrderId, isHaloStripeMetadata, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation };

@@ -39,7 +39,7 @@ test('keeps unresolved balance transactions visible without inventing fees', () 
 
 test('reconciles a pending charge only against its matching HALO PaymentIntent and amount', () => {
   const existingEntry = pendingHaloFinancialEntry({ ...metadata, grossPence: 2500 });
-  const paymentIntent = { id: 'pi_test_1', metadata: { store: 'halo', orderId: 'a'.repeat(32) } };
+  const paymentIntent = { id: 'pi_test_1', metadata: { store: 'halo', brand: 'HALO Skin UK', orderId: 'a'.repeat(32) } };
   const charge = { id: 'ch_test_1', payment_intent: paymentIntent.id, paid: true, status: 'succeeded', amount_captured: 2500 };
   const resolved = reconcilePendingHaloFinancialEntry({ existingEntry, source: charge, paymentIntent, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId });
   assert.equal(resolved.reconciliationStatus, 'reconciled');
@@ -47,12 +47,13 @@ test('reconciles a pending charge only against its matching HALO PaymentIntent a
   assert.equal(resolved.netPence, 2430);
   assert.throws(() => reconcilePendingHaloFinancialEntry({ existingEntry, source: { ...charge, amount_captured: 2400 }, paymentIntent, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId }), /does not match/);
   assert.throws(() => reconcilePendingHaloFinancialEntry({ existingEntry, source: charge, paymentIntent: { ...paymentIntent, metadata: { store: 'cc', orderId: 'a'.repeat(32) } }, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId }), /does not match/);
+  assert.throws(() => reconcilePendingHaloFinancialEntry({ existingEntry, source: charge, paymentIntent: { ...paymentIntent, metadata: { store: 'halo', brand: 'CORPVS CHRISTI', orderId: 'a'.repeat(32) } }, balanceTransaction: base, stripeAccountId: metadata.stripeAccountId }), /does not match/);
 });
 
 test('reconciles a pending refund only against its matching HALO PaymentIntent and negative amount', () => {
   const refundMetadata = { ...metadata, sourceType: 'refund', sourceId: 're_test_1' };
   const existingEntry = pendingHaloFinancialEntry({ ...refundMetadata, grossPence: -1000 });
-  const paymentIntent = { id: 'pi_test_1', metadata: { store: 'halo', orderId: 'a'.repeat(32) } };
+  const paymentIntent = { id: 'pi_test_1', metadata: { store: 'halo', brand: 'HALO Skin UK', orderId: 'a'.repeat(32) } };
   const refund = { id: 're_test_1', payment_intent: paymentIntent.id, amount: 1000 };
   const transaction = { ...base, id: 'txn_refund_1', amount: -1000, fee: 0, net: -1000, reporting_category: 'refund' };
   const resolved = reconcilePendingHaloFinancialEntry({ existingEntry, source: refund, paymentIntent, balanceTransaction: transaction, stripeAccountId: metadata.stripeAccountId });

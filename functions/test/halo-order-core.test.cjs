@@ -2,11 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('../halo-order-core');
+const { HALO_STRIPE_BRAND, HALO_STRIPE_STORE, haloRefundOrderId, isHaloStripeMetadata, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('../halo-order-core');
 
 const order = { id: 'order_halo_01', status: 'pending_payment', paymentStatus: 'pending', stripeSessionId: 'cs_test_halo_01', totalPence: 3899 };
 function event(type, object) { return { id: 'evt_test_01', type, livemode: false, data: { object } }; }
-const sessionMeta = { store: 'halo', orderId: order.id };
+const sessionMeta = { store: HALO_STRIPE_STORE, brand: HALO_STRIPE_BRAND, orderId: order.id };
 function session(extra = {}) { return { id: order.stripeSessionId, currency: 'gbp', amount_total: order.totalPence, payment_status: 'paid', payment_intent: 'pi_test_halo_01', metadata: sessionMeta, ...extra }; }
 
 test('accepts a matching successful test checkout and separates payment from fulfilment', () => {
@@ -40,6 +40,8 @@ test('failed payment events must identify HALO and match any linked PaymentInten
   for (const invalid of [
     { ...failedPayment, metadata: { store: 'cc', orderId: order.id } },
     { ...failedPayment, metadata: { orderId: order.id } },
+    { ...failedPayment, metadata: { store: 'halo', brand: 'CORPVS CHRISTI', orderId: order.id } },
+    { ...failedPayment, metadata: { store: 'halo', orderId: order.id } },
     { ...failedPayment, metadata: { store: 'halo', orderId: 'other_halo_order' } },
     { ...failedPayment, id: 'pi_test_other_brand' }
   ]) {
@@ -51,6 +53,7 @@ test('rejects live, wrong-store and amount-mismatched events', () => {
   const paidSession = session();
   assert.throws(() => stripeEventOrderUpdate(order, { ...event('checkout.session.completed', paidSession), livemode: true }), /test-mode/);
   assert.throws(() => stripeEventOrderUpdate(order, event('checkout.session.completed', { ...paidSession, metadata: { store: 'cc', orderId: order.id } })), /does not identify/);
+  assert.throws(() => stripeEventOrderUpdate(order, event('checkout.session.completed', { ...paidSession, metadata: { store: 'halo', brand: 'CORPVS CHRISTI', orderId: order.id } })), /does not identify/);
   assert.throws(() => stripeEventOrderUpdate(order, event('checkout.session.completed', { ...paidSession, amount_total: 1 })), /does not match/);
 });
 
@@ -86,6 +89,7 @@ test('allows pending HALO cancellation only after matching test Checkout Session
     { ...expired, payment_status: 'paid' },
     { ...expired, livemode: true },
     { ...expired, metadata: { store: 'cc', orderId: order.id } },
+    { ...expired, metadata: { store: 'halo', brand: 'CORPVS CHRISTI', orderId: order.id } },
     { ...expired, id: 'cs_test_other' }
   ]) {
     assert.throws(() => validatePendingCheckoutCancellation(pending, invalid, order.id), /expired, unpaid/);
@@ -115,11 +119,20 @@ test('an older refund event cannot decrease the recorded cumulative refund', () 
 
 test('resolves refunds from PaymentIntent metadata on the shared Rothcross Stripe account', () => {
   const orderId = 'a'.repeat(32);
-  const paymentIntent = { id: 'pi_test_halo_01', metadata: { store: 'halo', orderId } };
+  const paymentIntent = { id: 'pi_test_halo_01', metadata: { ...sessionMeta, orderId } };
   assert.equal(haloRefundOrderId(paymentIntent.id, paymentIntent), orderId);
   assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'cc', orderId } }), null);
+  assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'halo', brand: 'CORPVS CHRISTI', orderId } }), null);
+  assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'halo', orderId } }), null);
   assert.equal(haloRefundOrderId(paymentIntent.id, { ...paymentIntent, metadata: { store: 'halo', orderId: 'invalid' } }), null);
   assert.equal(haloRefundOrderId('pi_test_other', paymentIntent), null);
+});
+
+test('HALO Stripe event routing requires both the store and brand discriminator', () => {
+  assert.equal(isHaloStripeMetadata(sessionMeta), true);
+  assert.equal(isHaloStripeMetadata({ store: 'cc', brand: HALO_STRIPE_BRAND }), false);
+  assert.equal(isHaloStripeMetadata({ store: HALO_STRIPE_STORE, brand: 'CORPVS CHRISTI' }), false);
+  assert.equal(isHaloStripeMetadata({ store: HALO_STRIPE_STORE }), false);
 });
 
 test('refund idempotency keys are stable and scoped to the HALO order', () => {

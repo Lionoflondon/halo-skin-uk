@@ -49,7 +49,7 @@ test('HALO Admin cancellation expires and verifies unpaid staging Checkout Sessi
   assert.match(functions, /verifiedPaymentReleased[\s\S]*releaseReservedInventory\(transaction, orderRef[\s\S]*'admin_cancelled'/);
   assert.match(functions, /paymentProvider === 'roth'[\s\S]*roth\.reserve[\s\S]*roth\.cancel[\s\S]*reservation_cancelled/);
   const core = fs.readFileSync(path.join(__dirname, '../halo-order-core.js'), 'utf8');
-  assert.match(core, /session\.livemode !== false[\s\S]*session\.status !== 'expired'[\s\S]*session\.payment_status === 'paid'[\s\S]*metadata\?\.store !== 'halo'/);
+  assert.match(core, /session\.livemode !== false[\s\S]*session\.status !== 'expired'[\s\S]*session\.payment_status === 'paid'[\s\S]*isHaloStripeMetadata\(session\.metadata\)/);
 });
 
 test('checkout status reconciliation persists a paid test session and commits inventory idempotently', () => {

@@ -10,7 +10,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { logger } = require('firebase-functions/logger');
 const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
-const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('./halo-order-core');
+const { HALO_STRIPE_BRAND, HALO_STRIPE_STORE, haloRefundOrderId, isHaloStripeMetadata, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
@@ -276,9 +276,9 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
       shipping_address_collection: { allowed_countries: ['GB'] },
       success_url: `${siteUrl.value().replace(/\/$/, '')}/?payment=processing&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl.value().replace(/\/$/, '')}/?payment=cancelled`,
-      metadata: { store: 'halo', brand: 'HALO Skin UK', orderId },
+      metadata: { store: HALO_STRIPE_STORE, brand: HALO_STRIPE_BRAND, orderId },
       payment_intent_data: {
-        metadata: { store: 'halo', brand: 'HALO Skin UK', orderId },
+        metadata: { store: HALO_STRIPE_STORE, brand: HALO_STRIPE_BRAND, orderId },
         statement_descriptor_suffix: 'HALO SKIN UK'
       }
     }, { idempotencyKey: `halo_checkout_${orderId}` });
@@ -1093,7 +1093,7 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
       const session = event.data.object;
       if (session.payment_status !== 'paid') return response.status(200).json({ received: true, ignored: 'not_paid' });
       const orderId = session.metadata?.orderId;
-      if (session.metadata?.store !== 'halo' || !orderId) {
+      if (!isHaloStripeMetadata(session.metadata) || !orderId) {
         await eventRef.create({ type: event.type, status: 'ignored_wrong_store', createdAt: FieldValue.serverTimestamp() }).catch(error => { if (error.code !== 6) throw error; });
         return response.status(200).json({ received: true, ignored: 'wrong_store' });
       }
@@ -1115,7 +1115,7 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
     } else if (event.type === 'checkout.session.expired' || event.type === 'payment_intent.payment_failed') {
       const object = event.data.object;
       const orderId = object.metadata?.orderId || '';
-      if (object.metadata?.store !== 'halo' || !orderId) {
+      if (!isHaloStripeMetadata(object.metadata) || !orderId) {
         await eventRef.create({ type: event.type, status: 'ignored_wrong_store', createdAt: FieldValue.serverTimestamp() }).catch(error => { if (error.code !== 6) throw error; });
         return response.status(200).json({ received: true, ignored: 'wrong_store' });
       }
@@ -1140,7 +1140,7 @@ exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, 
       if (!paymentIntentId) return response.status(200).json({ received: true, ignored: 'no_payment_intent' });
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
       const orderId = paymentIntent.metadata?.orderId || '';
-      if (paymentIntent.metadata?.store !== 'halo' || !orderId || !/^[a-f0-9]{32}$/.test(orderId)) {
+      if (!isHaloStripeMetadata(paymentIntent.metadata) || !orderId || !/^[a-f0-9]{32}$/.test(orderId)) {
         return response.status(200).json({ received: true, ignored: 'wrong_store' });
       }
       const orderRef = db.collection('haloOrders').doc(orderId);

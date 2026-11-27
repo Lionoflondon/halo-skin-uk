@@ -49,7 +49,8 @@ function reconcilePendingHaloFinancialEntry({ existingEntry, source, paymentInte
       existingEntry.stripeAccountId !== stripeAccountId ||
       !source || source.id !== existingEntry.sourceId || !paymentIntent ||
       paymentIntent.id !== existingEntry.paymentIntentId ||
-      paymentIntent.metadata?.store !== 'halo' || paymentIntent.metadata?.orderId !== existingEntry.orderId) {
+      paymentIntent.metadata?.store !== 'halo' || paymentIntent.metadata?.brand !== 'HALO Skin UK' ||
+      paymentIntent.metadata?.orderId !== existingEntry.orderId) {
     throw new Error('Pending financial entry does not match a HALO Stripe source.');
   }
 
