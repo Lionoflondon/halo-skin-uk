@@ -279,3 +279,8 @@ The manual HALO staging workflow now has independent `hosting-only` and `full-st
 
 - Added a post-deploy check to the `full-staging` workflow. It is pinned to `https://halo-skin-uk-stg.web.app` and verifies the checkout CORS preflight plus the expected customer, Admin, stock-count and webhook authentication/method gates. It sends no order, payment, customer or authentication data and fails if the Functions routes are missing or return unexpected responses.
 - Unit coverage verifies the staging-only target, empty request bodies and safe reporting of connection errors. `npm test` passes 29 storefront tests and 65 Functions tests. A direct attempt to run the smoke check failed before receiving an HTTP response because this environment could not resolve the staging host (`ENOTFOUND`); it proves neither endpoint presence nor absence. The post-preflight Firebase Functions inventory previously returned an empty list, so hosted acceptance still needs both a deployed backend and a successful network path.
+
+### Firestore rules regression checks — 27 November 2026
+
+- Added source-level regression tests for admin email verification and second-factor claims, public reads limited to published products, inventory-field write protection, and deny-by-default access outside the catalogue. These checks run in the existing test workflow and do not access Firestore or use credentials.
+- Emulator-backed rule tests remain unavailable in this environment: Java is not installed and the npm registry hostname cannot resolve for the official rules-testing package. These static assertions do not prove deployed rules or emulator behavior; the Cloud Console rules page and an emulator run remain required verification.
