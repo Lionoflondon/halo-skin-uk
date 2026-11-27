@@ -7,6 +7,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { FieldPath, FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
+const { logger } = require('firebase-functions/logger');
 const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
 const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('./halo-order-core');
@@ -17,6 +18,7 @@ const { haloFinancialEntry, pendingHaloFinancialEntry, reconcilePendingHaloFinan
 const { assertHaloRothStagingApiOrigin, createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
 const { normalizeHaloShippingDetails, processRothOrderPayment, rothOrderFingerprint } = require('./roth-order-core');
 const { isSyntheticStagingCheckoutEnabled } = require('./synthetic-checkout-core');
+const { logHaloServerFailure } = require('./observability-core');
 
 initializeApp();
 const db = getFirestore();
@@ -157,6 +159,7 @@ async function failRothOrderBeforeReservation(orderRef, reason, expectedReservat
   });
 }
 function sendError(response, status, code, message) {
+  logHaloServerFailure(logger, status, code);
   response.set('Cache-Control', 'no-store').status(status).json({ error: code, message });
 }
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
