@@ -639,13 +639,6 @@ function bindInteractions() {
     if (product) selectCategory(product.type);
   });
 
-  $('#newsletter-form')?.addEventListener('submit', event => {
-    event.preventDefault();
-    const message = $('.form-message', event.currentTarget);
-    if (message) message.textContent = 'Welcome to our orbit. Check your inbox soon.';
-    event.currentTarget.reset();
-  });
-
   $$('input[name="deliveryMethod"]').forEach(input => input.addEventListener('change', renderCheckoutTotals));
   $$('input[name="paymentMethod"]').forEach(input => input.addEventListener('change', updateCheckoutPaymentLabel));
   ['address', 'city', 'postcode'].forEach(name => {

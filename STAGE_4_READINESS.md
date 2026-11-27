@@ -353,3 +353,9 @@ The manual HALO staging workflow now has independent `hosting-only` and `full-st
 - Rechecked the environment: it has no secrets configured. The deployment gate still has only `Lionoflondon` as reviewer, allows self-review and administrator bypass, and allows only `codex/halo-stage4`. This is not independent two-person approval. No protection rule was changed.
 - Firebase Console for `halo-skin-uk-stg` still lists the HALO staging web app as **Not registered** with App Check. The project is on Blaze. No provider or enforcement setting was selected; cost and paid-service approval remain unresolved. App Check is still a hosted API acceptance blocker.
 - These are read-only verification plus removal of the obsolete non-secret GitHub environment variable. No payment, deployment, cloud resource, production project, or customer data was changed.
+
+### Storefront newsletter integrity fix — 27 November 2026
+
+- Hosted UI inspection found that the newsletter form displayed a successful-subscription message and cleared the entered address without sending or storing a subscription. Source now states that sign-ups are unavailable, disables the input and submit button, and has no fake success handler. No visitor email is collected.
+- Added a regression test for the disabled state and absence of the false success response. `git diff --check` passed; `npm test` passed 35 storefront tests and 66 Functions tests.
+- This source change is on the HALO staging branch only. It has not been deployed because the repository's protected staging workflow is not available from the current default branch. No payment, customer data, production site, or external email service was used.

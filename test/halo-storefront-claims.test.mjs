@@ -37,3 +37,11 @@ test('footer help links lead to HALO support instead of placeholder pages or unv
   assert.match(footer, /href="mailto:hello@haloskinuk\.com\?subject=Frequently%20asked%20questions"/);
   assert.doesNotMatch(footer, /href="#"|Instagram|TikTok/);
 });
+
+test('newsletter signup is unavailable until a real consent and delivery service exists', () => {
+  const form = html.match(/<form id="newsletter-form">([\s\S]*?)<\/form>/)?.[1] || '';
+  assert.match(form, /<input[^>]*disabled/);
+  assert.match(form, /<button[^>]*disabled/);
+  assert.match(form, /HALO is not collecting newsletter addresses/);
+  assert.doesNotMatch(app, /newsletter-form[\s\S]{0,250}Welcome to our orbit/);
+});
