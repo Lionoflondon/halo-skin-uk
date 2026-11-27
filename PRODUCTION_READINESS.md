@@ -14,7 +14,7 @@ The requested HALO scope includes ROTH wallet linking, checkout redemption, and 
 ## Changes made in this review
 
 - Removed the browser helper that accepted a caller-supplied `payment.status === "succeeded"` and posted it to a payment-success endpoint. A browser assertion cannot prove a settled provider payment.
-- Added a HALO-owned Firebase Functions checkout/webhook path using the Rothcross Stripe account in test mode only. It prices against published catalogue records, records orders under `haloOrders`, verifies signed test webhooks, checks the configured Stripe account ID, rejects live-mode keys/events, and marks the payment with a HALO-specific statement descriptor suffix.
+- Added a HALO-owned Firebase Functions checkout/webhook path using the Rothcross Stripe account in test mode only. It prices against published catalogue records, records orders under `haloOrders`, verifies signed test webhooks, pins the expected account identity to the Rothcross test sandbox, rejects live-mode keys/events, and marks the payment with a HALO-specific statement descriptor suffix.
 - Connected the storefront checkout to the server-created hosted Stripe session. The browser sends only item identifiers, quantities, email and delivery method; the server chooses prices.
 - Added a tested order/payment state reducer for successful, failed, abandoned, duplicate and partial/full refund events, plus an order lifecycle transition guard. Added MFA-gated admin order listing/status/refund endpoints and a non-PII checkout status endpoint.
 - Kept Circum Same Day disabled at secure checkout until server-side service-area verification and approved delivery adapters are connected. Test-paid orders start at `status: paid`; fulfilment must then move through explicit admin lifecycle actions.
@@ -36,7 +36,7 @@ The requested HALO scope includes ROTH wallet linking, checkout redemption, and 
 
 ## Required next inputs and work
 
-1. Approve a monthly staging cost ceiling and billing account, then provision Rothcross Stripe **test-mode** secret and webhook secret in an isolated HALO staging project, plus the expected Stripe account ID and allowed staging origin. Exercise hosted Checkout, webhook retries, refunds and reconciliation there.
+1. Approve a monthly staging cost ceiling and billing account, then provision Rothcross Stripe **test-mode** secret and HALO webhook secret in an isolated HALO staging project with the allowed staging origin. Exercise hosted Checkout, webhook retries, refunds and reconciliation there.
 2. Provide the approved CIRCUM staging integration contract, scoped credentials, warehouse details, eligibility/quotation rules, and retry/status webhook rules.
 3. Provide HALO's ROTH staging merchant identity/credential, customer linking contract, and approved promotional/purchase issuance, refund, redemption and settlement-attribution rules. Replace the synthetic harness with actual HALO staging acceptance.
 4. Decide the required admin MFA and access model; provision and verify it in staging.

@@ -1,6 +1,7 @@
 'use strict';
 
 const STANDARD_DELIVERY_PENCE = 299;
+const ROTHCROSS_STRIPE_TEST_ACCOUNT_ID = 'acct_1UVzZNGixLdvM11b';
 
 function assertHaloStagingProject(projectId) {
   if (projectId !== 'halo-skin-uk-stg') throw new Error('HALO test payments require the isolated staging project.');
@@ -42,4 +43,4 @@ function checkoutFingerprint({ items, email, deliveryMethod, customerUid = null 
   return JSON.stringify({ items, email: String(email || '').trim().toLowerCase(), deliveryMethod, customerUid: customerUid || null });
 }
 
-module.exports = { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey };
+module.exports = { ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey };

@@ -9,7 +9,7 @@ const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
 const { logger } = require('firebase-functions/logger');
 const Stripe = require('stripe');
-const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
+const { ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
 const { HALO_STRIPE_BRAND, HALO_STRIPE_STORE, haloRefundOrderId, isHaloStripeMetadata, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
@@ -24,7 +24,6 @@ initializeApp();
 const db = getFirestore();
 const stripeSecret = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
-const expectedStripeAccountId = defineString('ROTHCROSS_STRIPE_ACCOUNT_ID');
 const rothApiOrigin = defineString('HALO_ROTH_API_ORIGIN', { default: '' });
 const rothMerchantKeyId = defineString('HALO_ROTH_MERCHANT_KEY_ID', { default: '' });
 const rothBusinessId = defineString('HALO_ROTH_BUSINESS_ID', { default: '' });
@@ -80,8 +79,8 @@ function stripeClient() {
   return new Stripe(requireTestStripeKey(stripeSecret.value()));
 }
 async function assertRothcrossStripeAccount(stripe) {
-  const expected = expectedStripeAccountId.value();
   const account = await stripe.accounts.retrieve();
+  const expected = ROTHCROSS_STRIPE_TEST_ACCOUNT_ID;
   assertStripeAccountId(expected, account.id);
 }
 function inventoryMovementRef(orderId, productId) {
@@ -709,7 +708,7 @@ exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstanc
       const snapshot = await query.get();
       const page = snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
       scannedCount += snapshot.size;
-      entries.push(...page.filter(entry => entry.brand === 'HALO' && entry.store === 'halo' && entry.stripeAccountId === expectedStripeAccountId.value()));
+      entries.push(...page.filter(entry => entry.brand === 'HALO' && entry.store === 'halo' && entry.stripeAccountId === ROTHCROSS_STRIPE_TEST_ACCOUNT_ID));
       if (snapshot.size < requestedLimit) {
         complete = true;
         break;
@@ -727,7 +726,7 @@ exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstanc
       return result;
     }, { grossPence: 0, feePence: 0, netPence: 0 });
     response.set('Cache-Control', 'no-store').status(200).json({
-      brand: 'HALO', stripeAccountId: expectedStripeAccountId.value(), currency: 'GBP', complete, scannedCount,
+      brand: 'HALO', stripeAccountId: ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, currency: 'GBP', complete, scannedCount,
       totals, reconciledCount: reconciled.length, pendingCount: pending.length,
       entries: recent.map(({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }) => ({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }))
     });
@@ -755,7 +754,7 @@ exports.adminReconcilePendingFinancialEntries = onRequest({ region, invoker: 'pu
       .where('brand', '==', 'HALO')
       .where('store', '==', 'halo')
       .where('reconciliationStatus', '==', 'pending_balance_transaction')
-      .where('stripeAccountId', '==', expectedStripeAccountId.value())
+      .where('stripeAccountId', '==', ROTHCROSS_STRIPE_TEST_ACCOUNT_ID)
       .orderBy(FieldPath.documentId())
       .limit(batchSize);
     if (cursor) query = query.startAfter(cursor);
@@ -768,7 +767,7 @@ exports.adminReconcilePendingFinancialEntries = onRequest({ region, invoker: 'pu
     for (const document of snapshot.docs) {
       const existingEntry = { id: document.id, ...document.data() };
       if (existingEntry.brand !== 'HALO' || existingEntry.store !== 'halo' ||
-          existingEntry.stripeAccountId !== expectedStripeAccountId.value()) {
+          existingEntry.stripeAccountId !== ROTHCROSS_STRIPE_TEST_ACCOUNT_ID) {
         skippedCount += 1;
         continue;
       }
@@ -793,7 +792,7 @@ exports.adminReconcilePendingFinancialEntries = onRequest({ region, invoker: 'pu
         }
         const reconciledEntry = reconcilePendingHaloFinancialEntry({
           existingEntry, source, paymentIntent, balanceTransaction,
-          stripeAccountId: expectedStripeAccountId.value()
+          stripeAccountId: ROTHCROSS_STRIPE_TEST_ACCOUNT_ID
         });
         const outcome = await db.runTransaction(async transaction => {
           const currentSnapshot = await transaction.get(document.ref);

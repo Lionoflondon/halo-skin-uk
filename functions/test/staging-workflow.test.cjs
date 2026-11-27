@@ -24,6 +24,7 @@ test('HALO deployment stays manual, serialized and behind the staging environmen
   assert.match(workflow, /group: halo-staging-deploy\n  cancel-in-progress: false/);
   assert.match(workflow, /environment: halo-staging/);
   assert.match(workflow, /test "\$PROJECT_ID" != "halo-skin-uk"[\s\S]*test "\$PROJECT_ID" = "halo-skin-uk-stg"/);
+  assert.doesNotMatch(workflow, /ROTHCROSS_STRIPE_ACCOUNT_ID|STRIPE_ACCOUNT_ID/);
   assert.match(workflow, /DEPLOY_SCOPE" == "hosting-only"[\s\S]*firebase-tools@[^\s]+ deploy --only hosting --project "\$PROJECT_ID"/);
   assert.match(workflow, /DEPLOY_SCOPE" == "full-staging"[\s\S]*firebase-tools@[^\s]+ deploy --only hosting,functions,firestore:rules,firestore:indexes,auth --project "\$PROJECT_ID"/);
   assert.match(workflow, /if: \$\{\{ inputs\.scope == 'full-staging' \}\}/);

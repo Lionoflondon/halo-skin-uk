@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('../halo-payment-core');
+const { ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('../halo-payment-core');
 
 const products = [
   { id: 'lip-01', variantId: 'v-01', title: 'Lip treatment', price: 18, published: true, available: true, stockQuantity: 10 },
@@ -22,10 +22,11 @@ test('restricts every HALO Stripe operation to the isolated staging project', ()
   assert.throws(() => assertHaloStagingProject(''), /isolated staging project/);
 });
 
-test('pins Stripe API key to the expected Rothcross account', () => {
-  assert.doesNotThrow(() => assertStripeAccountId('acct_rothcrossTest01', 'acct_rothcrossTest01'));
-  assert.throws(() => assertStripeAccountId('acct_rothcrossTest01', 'acct_otherAccount01'), /expected Rothcross account/);
-  assert.throws(() => assertStripeAccountId('', 'acct_rothcrossTest01'), /expected Rothcross account/);
+test('pins Stripe API key to the verified Rothcross test sandbox account', () => {
+  assert.equal(ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, 'acct_1UVzZNGixLdvM11b');
+  assert.doesNotThrow(() => assertStripeAccountId(ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, ROTHCROSS_STRIPE_TEST_ACCOUNT_ID));
+  assert.throws(() => assertStripeAccountId(ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, 'acct_1UW59kGf7DMZCCK4'), /expected Rothcross account/);
+  assert.throws(() => assertStripeAccountId('', ROTHCROSS_STRIPE_TEST_ACCOUNT_ID), /expected Rothcross account/);
 });
 
 test('prices cart from published server catalogue and keeps amounts in pence', () => {
