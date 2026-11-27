@@ -3,7 +3,8 @@
 ## API error-response hardening — 27 November 2026
 
 - Catch-all failures in HALO Admin order listing, Stripe refund initiation and stock-count recording now return stable generic messages instead of raw database/provider exception text. ROTH wallet, reward and settlement endpoints no longer echo unexpected transport errors, and untrusted ROTH error codes are normalized before returning them. Expected App Check and administrator-authentication denials keep their actionable responses. Payment, inventory and order-state transitions are unchanged.
-- `npm test` passed; the Functions suite reports 59/59 passing, including a regression test for malformed upstream error codes. This is local source verification; the staging project still has no deployed Functions, so hosted response behavior remains unverified.
+- `npm test` passed; the Functions suite reports 59/59 passing, including a regression test for malformed upstream error codes. GitHub Actions [run 46064794093](https://github.com/Lionoflondon/halo-skin-uk/actions/runs/46064794093) passed for commit `5a92d05`. This is source/CI verification; the staging project still has no deployed Functions, so hosted response behavior remains unverified.
+- The current `npm audit --prefix functions --omit=dev` attempt could not reach `registry.npmjs.org` because DNS resolution failed. Current dependency advisories remain unverified; no dependency change was made.
 
 ## Source update — 27 November 2026
 
