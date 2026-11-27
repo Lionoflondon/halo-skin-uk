@@ -142,3 +142,14 @@ test('HALO staging redeploys do not add duplicate secret versions', () => {
   assert.match(workflow, /gcloud secrets versions access latest[\s\S]*cmp -s - "\$current_value"[\s\S]*gcloud secrets versions add/);
   assert.match(workflow, /refusing to add another secret version/);
 });
+
+test('full staging deployment checks hosted auth gates without submitting order or payment data', () => {
+  assert.match(workflow, /inputs\.scope == 'full-staging'[\s\S]*node scripts\/verify-halo-staging\.mjs/);
+  const smoke = fs.readFileSync(path.join(__dirname, '../../scripts/verify-halo-staging.mjs'), 'utf8');
+  assert.match(smoke, /https:\/\/halo-skin-uk-stg\.web\.app/);
+  assert.match(smoke, /createCheckoutSession[\s\S]*method: 'OPTIONS'/);
+  assert.match(smoke, /customerOrders[\s\S]*method: 'GET'[\s\S]*status: 401/);
+  assert.match(smoke, /adminOrders[\s\S]*method: 'GET'[\s\S]*status: 403/);
+  assert.match(smoke, /stripeWebhook[\s\S]*method: 'GET'[\s\S]*status: 405/);
+  assert.doesNotMatch(smoke, /body:/);
+});

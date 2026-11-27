@@ -274,3 +274,8 @@ The manual HALO staging workflow now has independent `hosting-only` and `full-st
 
 - HALO's shared Functions error responder now emits structured Cloud Logging entries for server errors (HTTP 5xx), containing only the numeric status and a validated stable error code. It does not log request data, customer details, payment details, or provider error text. Client errors are not logged through this path.
 - Added unit coverage for the server-error filter and safe-field allowlist. `npm test` passes 26 storefront tests and 64 Functions tests; `git diff --check` passes. This is source evidence only: Functions are not deployed, and a staging alert policy or incident notification route has not been configured or exercised.
+
+### Hosted staging API smoke gate — 27 November 2026
+
+- Added a post-deploy check to the `full-staging` workflow. It is pinned to `https://halo-skin-uk-stg.web.app` and verifies the checkout CORS preflight plus the expected customer, Admin, stock-count and webhook authentication/method gates. It sends no order, payment, customer or authentication data and fails if the Functions routes are missing or return unexpected responses.
+- Unit coverage verifies the staging-only target and empty request bodies. `npm test` passes 28 storefront tests and 65 Functions tests; the smoke check itself remains unrun because staging Functions have not deployed.
