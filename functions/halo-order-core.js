@@ -10,6 +10,17 @@ function stripeRefundIdempotencyKey(orderId, requestKey) {
   return `halo_refund_${orderId}_${digest}`;
 }
 
+function validatePendingCheckoutCancellation(order, session, orderId) {
+  if (!order || order.brand !== 'HALO' || order.id !== orderId ||
+      typeof order.stripeSessionId !== 'string' || !order.stripeSessionId ||
+      !session || session.id !== order.stripeSessionId || session.livemode !== false ||
+      session.status !== 'expired' || session.payment_status === 'paid' ||
+      session.metadata?.store !== 'halo' || session.metadata?.orderId !== orderId) {
+    throw new Error('Stripe has not confirmed an expired, unpaid Checkout Session for this HALO order.');
+  }
+  return true;
+}
+
 function stripeShippingDetails(session) {
   const details = session.collected_information?.shipping_details ?? session.shipping_details;
   const address = details?.address;
@@ -95,4 +106,4 @@ function haloRefundOrderId(paymentIntentId, paymentIntent) {
   return metadata.orderId;
 }
 
-module.exports = { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey };
+module.exports = { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation };

@@ -42,6 +42,15 @@ test('pending financial reconciliation is routed to its protected staging Functi
   assert.deepEqual(ledgerIndex?.fields.map(field => field.fieldPath), ['brand', 'store', 'reconciliationStatus', 'stripeAccountId', '__name__']);
 });
 
+test('HALO Admin cancellation expires and verifies unpaid staging Checkout Sessions before releasing stock', () => {
+  const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
+  assert.match(functions, /exports\.updateHaloOrder = onRequest\([\s\S]*secrets: \[stripeSecret\]/);
+  assert.match(functions, /stripe\.checkout\.sessions\.retrieve\(initialOrder\.stripeSessionId\)[\s\S]*stripe\.checkout\.sessions\.expire\(initialOrder\.stripeSessionId\)[\s\S]*validatePendingCheckoutCancellation/);
+  assert.match(functions, /verifiedExpiredSession[\s\S]*releaseReservedInventory\(transaction, orderRef[\s\S]*'admin_cancelled'/);
+  const core = fs.readFileSync(path.join(__dirname, '../halo-order-core.js'), 'utf8');
+  assert.match(core, /session\.livemode !== false[\s\S]*session\.status !== 'expired'[\s\S]*session\.payment_status === 'paid'[\s\S]*metadata\?\.store !== 'halo'/);
+});
+
 test('hosting-only releases keep payments closed until the full staging configuration passes', () => {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const firebaseConfig = fs.readFileSync(path.join(__dirname, '../../firebase-config.js'), 'utf8');

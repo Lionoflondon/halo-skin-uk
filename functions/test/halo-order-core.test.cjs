@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey } = require('../halo-order-core');
+const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('../halo-order-core');
 
 const order = { id: 'order_halo_01', status: 'pending_payment', paymentStatus: 'pending', stripeSessionId: 'cs_test_halo_01', totalPence: 3899 };
 function event(type, object) { return { id: 'evt_test_01', type, livemode: false, data: { object } }; }
@@ -58,6 +58,21 @@ test('enforces pending-to-delivered order lifecycle and disallows skipping steps
   assert.equal(nextOrderStatus('processing', 'dispatched'), 'dispatched');
   assert.equal(nextOrderStatus('dispatched', 'delivered'), 'delivered');
   assert.throws(() => nextOrderStatus('paid', 'delivered'), /cannot move/);
+});
+
+test('allows pending HALO cancellation only after matching test Checkout Session expires unpaid', () => {
+  const pending = { ...order, id: order.id, brand: 'HALO', stripeMode: 'test' };
+  const expired = { id: order.stripeSessionId, livemode: false, status: 'expired', payment_status: 'unpaid', metadata: sessionMeta };
+  assert.equal(validatePendingCheckoutCancellation(pending, expired, order.id), true);
+  for (const invalid of [
+    { ...expired, status: 'open' },
+    { ...expired, payment_status: 'paid' },
+    { ...expired, livemode: true },
+    { ...expired, metadata: { store: 'cc', orderId: order.id } },
+    { ...expired, id: 'cs_test_other' }
+  ]) {
+    assert.throws(() => validatePendingCheckoutCancellation(pending, invalid, order.id), /expired, unpaid/);
+  }
 });
 
 test('captures UK shipping details from current and legacy Checkout Session shapes', () => {

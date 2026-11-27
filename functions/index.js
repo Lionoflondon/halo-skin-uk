@@ -9,7 +9,7 @@ const { defineSecret, defineString } = require('firebase-functions/params');
 const { onRequest } = require('firebase-functions/v2/https');
 const Stripe = require('stripe');
 const { STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
-const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey } = require('./halo-order-core');
+const { haloRefundOrderId, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('./halo-order-core');
 const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
@@ -586,7 +586,7 @@ exports.adminReconcilePendingFinancialEntries = onRequest({ region, invoker: 'pu
   }
 });
 
-exports.updateHaloOrder = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
+exports.updateHaloOrder = onRequest({ region, invoker: 'public', maxInstances: 3, secrets: [stripeSecret] }, async (request, response) => {
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to update an order.');
   try {
     const admin = await requireHaloAdmin(request);
@@ -596,18 +596,43 @@ exports.updateHaloOrder = onRequest({ region, invoker: 'public', maxInstances: 3
     const reason = String(request.body?.reason || '').trim().slice(0, 240);
     if (!/^[a-f0-9]{32}$/.test(orderId) || !reason) return sendError(response, 422, 'invalid_order_update', 'Provide an order ID and reason.');
     const orderRef = db.collection('haloOrders').doc(orderId);
+    let verifiedExpiredSession = false;
+    if (targetStatus === 'cancelled') {
+      const initialSnapshot = await orderRef.get();
+      if (!initialSnapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order not found.');
+      const initialOrder = { id: orderId, ...initialSnapshot.data() };
+      if (initialOrder.brand !== 'HALO') return sendError(response, 404, 'order_not_found', 'HALO order not found.');
+      if (initialOrder.status === 'pending_payment') {
+        if (!initialOrder.stripeSessionId || initialOrder.stripeMode !== 'test') {
+          return sendError(response, 409, 'checkout_session_unavailable', 'This order has no verified HALO staging Checkout Session to cancel.');
+        }
+        const stripe = stripeClient();
+        await assertRothcrossStripeAccount(stripe);
+        let session = await stripe.checkout.sessions.retrieve(initialOrder.stripeSessionId);
+        if (session.status === 'open') session = await stripe.checkout.sessions.expire(initialOrder.stripeSessionId);
+        validatePendingCheckoutCancellation(initialOrder, session, orderId);
+        verifiedExpiredSession = true;
+      }
+    }
     const result = await db.runTransaction(async transaction => {
       const snapshot = await transaction.get(orderRef);
       if (!snapshot.exists) throw new Error('HALO order not found.');
       const order = snapshot.data();
       const status = nextOrderStatus(order.status, targetStatus);
-      if (status === 'cancelled' && !['abandoned', 'refunded'].includes(order.paymentStatus)) {
-        throw new Error('Wait for the Stripe Checkout session to expire, or refund the full payment before cancelling.');
+      let cancellationInventoryPatch = {};
+      if (status === 'cancelled') {
+        if (order.status === 'pending_payment') {
+          if (!verifiedExpiredSession) throw new Error('Stripe must confirm that the HALO Checkout Session is expired and unpaid before cancellation.');
+          cancellationInventoryPatch = await releaseReservedInventory(transaction, orderRef, { id: orderId, ...order }, 'admin_cancelled');
+        } else if (order.paymentStatus !== 'refunded') {
+          throw new Error('Refund the full payment in Stripe before cancelling a paid HALO order.');
+        }
       }
       if ((status === 'processing' || status === 'dispatched') && order.paymentStatus !== 'paid') throw new Error('This order requires payment review before fulfilment.');
       if ((status === 'processing' || status === 'dispatched') && order.deliveryMethod === 'standard' && !order.shippingDetails) throw new Error('A verified delivery address is required before fulfilment.');
       if (status === 'dispatched' && !/^https:\/\//.test(String(request.body?.trackingUrl || ''))) throw new Error('A secure tracking URL is required before dispatch.');
-      const patch = { status, updatedAt: FieldValue.serverTimestamp() };
+      const patch = { ...cancellationInventoryPatch, status, updatedAt: FieldValue.serverTimestamp() };
+      if (status === 'cancelled' && order.status === 'pending_payment' && order.paymentStatus === 'pending') patch.paymentStatus = 'abandoned';
       if (status === 'dispatched') patch.trackingUrl = String(request.body.trackingUrl).slice(0, 500);
       if (status === 'delivered') patch.deliveredAt = FieldValue.serverTimestamp();
       transaction.update(orderRef, patch);
