@@ -30,3 +30,12 @@ test('staging smoke check rejects a missing or misrouted backend', async () => {
     /checkout CORS preflight returned HTTP 404; expected 204/
   );
 });
+
+test('staging smoke check reports only a safe network error code', async () => {
+  const networkError = new Error('sensitive low-level error text');
+  networkError.cause = { code: 'ENOTFOUND' };
+  await assert.rejects(
+    verifyHaloStaging(async () => { throw networkError; }),
+    error => error.message === 'checkout CORS preflight could not connect (ENOTFOUND).'
+  );
+});

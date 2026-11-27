@@ -16,12 +16,19 @@ const probes = [
 export async function verifyHaloStaging(fetchImpl = fetch) {
   const results = [];
   for (const probe of probes) {
-    const response = await fetchImpl(new URL(probe.path, STAGING_ORIGIN), {
-      method: probe.method,
-      headers: probe.headers,
-      redirect: 'manual',
-      signal: AbortSignal.timeout(15000)
-    });
+    let response;
+    try {
+      response = await fetchImpl(new URL(probe.path, STAGING_ORIGIN), {
+        method: probe.method,
+        headers: probe.headers,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(15000)
+      });
+    } catch (error) {
+      const code = error?.cause?.code;
+      const safeCode = typeof code === 'string' && /^[A-Z0-9_]{2,40}$/.test(code) ? code : 'network_error';
+      throw new Error(`${probe.name} could not connect (${safeCode}).`);
+    }
     if (response.status !== probe.status) {
       throw new Error(`${probe.name} returned HTTP ${response.status}; expected ${probe.status}.`);
     }
