@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash, createHmac } = require('node:crypto');
-const { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity } = require('../roth-merchant-core');
+const { assertHaloRothStagingApiOrigin, createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity } = require('../roth-merchant-core');
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
@@ -38,6 +38,18 @@ test('rejects insecure, path-scoped, or credential-free API configuration and un
   assert.throws(() => createRothMerchantClient({ ...options, baseUrl: 'https://roth.example', secret: '' }), /credentials/);
   const client = createRothMerchantClient({ ...options, baseUrl: 'https://roth.example', fetchImpl: async () => response({}) });
   assert.throws(() => client.integration('unknown', {}), /Unsupported/);
+});
+
+test('pins HALO ROTH integration to the verified staging API origin', () => {
+  assert.equal(assertHaloRothStagingApiOrigin('https://roth-stage-api-ger4wyyrja-nw.a.run.app'), 'https://roth-stage-api-ger4wyyrja-nw.a.run.app');
+  for (const value of [
+    'https://api.rothcross.com',
+    'https://roth-stage-api-ger4wyyrja-nw.a.run.app/v1',
+    'https://user:pass@roth-stage-api-ger4wyyrja-nw.a.run.app',
+    'not-a-url'
+  ]) {
+    assert.throws(() => assertHaloRothStagingApiOrigin(value), /verified ROTH staging API origin/);
+  }
 });
 
 test('surfaces safe ROTH error code and status while refusing unreadable responses', async () => {

@@ -70,8 +70,8 @@ jobs:
           let rothOrigin = null;
           if (rothConfigured) {
             rothOrigin = new URL(process.env.ROTH_API_ORIGIN);
-            if (rothOrigin.protocol !== 'https:' || rothOrigin.pathname !== '/' || rothOrigin.search || rothOrigin.hash || rothOrigin.username || rothOrigin.password) {
-              throw new Error('Set the registered ROTH staging API origin (HTTPS origin only).');
+            if (rothOrigin.origin !== 'https://roth-stage-api-ger4wyyrja-nw.a.run.app' || rothOrigin.pathname !== '/' || rothOrigin.search || rothOrigin.hash || rothOrigin.username || rothOrigin.password) {
+              throw new Error('Set the verified ROTH staging API origin.');
             }
             if (!/^[A-Za-z0-9_-]{1,128}$/.test(process.env.ROTH_BUSINESS_ID)) throw new Error('Set HALO\'s independently registered ROTH staging business ID.');
           }
@@ -88,6 +88,7 @@ jobs:
             const functionEnv = [
               `HALO_SITE_URL=${stagingUrl}`,
               `HALO_CHECKOUT_ALLOWED_ORIGINS=${stagingUrl}`,
+              'HALO_SYNTHETIC_STAGING_CHECKOUT_ENABLED=true',
               `ROTHCROSS_STRIPE_ACCOUNT_ID=${stripeAccount}`
             ];
             if (rothConfigured) functionEnv.push(

@@ -65,10 +65,27 @@ test('checkout status reconciliation persists a paid test session and commits in
 test('hosting-only releases keep payments closed until the full staging configuration passes', () => {
   const app = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
   const firebaseConfig = fs.readFileSync(path.join(__dirname, '../../firebase-config.js'), 'utf8');
+  const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
   assert.match(workflow, /required\.push\('APPCHECK_SITE_KEY'\)/);
   assert.match(workflow, /HALO_HOSTED_CHECKOUT_ENABLED = \$\{JSON\.stringify\(fullStaging\)\}/);
+  assert.match(workflow, /HALO_SYNTHETIC_STAGING_CHECKOUT_ENABLED=true/);
+  assert.match(functions, /if \(!isSyntheticStagingCheckoutEnabled\([\s\S]*'checkout_disabled'/);
+  const cardCheckout = functions.slice(functions.indexOf('exports.createCheckoutSession ='), functions.indexOf('exports.customerOrders ='));
+  const rothCheckout = functions.slice(functions.indexOf('exports.createRothOrder ='), functions.indexOf('exports.rothIssueReward ='));
+  assert.ok(cardCheckout.indexOf("'checkout_disabled'") < cardCheckout.indexOf('db.runTransaction'));
+  assert.ok(rothCheckout.indexOf("'checkout_disabled'") < rothCheckout.indexOf('db.runTransaction'));
   assert.match(app, /if \(!syntheticStagingSalesEnabled \|\| !endpoint\)/);
   assert.match(firebaseConfig, /window\.HALO_HOSTED_CHECKOUT_ENABLED = false/);
+});
+
+test('ROTH checkout validates its pinned staging client before the inventory transaction', () => {
+  const functions = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
+  const endpoint = functions.slice(functions.indexOf('exports.createRothOrder ='), functions.indexOf('exports.rothIssueReward ='));
+  assert.ok(endpoint.indexOf('const roth = rothIntegration();') < endpoint.indexOf('await db.runTransaction'));
+  assert.match(endpoint, /expectedBusinessId: rothBusinessId\.value\(\), roth,/);
+  const merchant = fs.readFileSync(path.join(__dirname, '../roth-merchant-core.js'), 'utf8');
+  assert.match(merchant, /https:\/\/roth-stage-api-ger4wyyrja-nw\.a\.run\.app/);
+  assert.match(workflow, /rothOrigin\.origin !== 'https:\/\/roth-stage-api-ger4wyyrja-nw\.a\.run\.app'/);
 });
 
 test('HALO Stripe secret injection requires test mode and a London-only replication location', () => {

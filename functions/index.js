@@ -14,8 +14,9 @@ const { customerOrderSummary } = require('./customer-order-core');
 const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
 const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
 const { haloFinancialEntry, pendingHaloFinancialEntry, reconcilePendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
-const { createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
+const { assertHaloRothStagingApiOrigin, createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
 const { normalizeHaloShippingDetails, processRothOrderPayment, rothOrderFingerprint } = require('./roth-order-core');
+const { isSyntheticStagingCheckoutEnabled } = require('./synthetic-checkout-core');
 
 initializeApp();
 const db = getFirestore();
@@ -26,6 +27,7 @@ const rothApiOrigin = defineString('HALO_ROTH_API_ORIGIN', { default: '' });
 const rothMerchantKeyId = defineString('HALO_ROTH_MERCHANT_KEY_ID', { default: '' });
 const rothBusinessId = defineString('HALO_ROTH_BUSINESS_ID', { default: '' });
 const rothMerchantSecret = defineSecret('HALO_ROTH_MERCHANT_SECRET');
+const syntheticStagingCheckout = defineString('HALO_SYNTHETIC_STAGING_CHECKOUT_ENABLED', { default: 'false' });
 const siteUrl = defineString('HALO_SITE_URL', { default: 'https://haloskinuk.com' });
 const allowedOrigins = defineString('HALO_CHECKOUT_ALLOWED_ORIGINS', { default: 'https://haloskinuk.com,https://www.haloskinuk.com' });
 const region = 'europe-west2';
@@ -63,8 +65,7 @@ async function requireVerifiedHaloCustomer(request) {
 function rothIntegration() {
   if (process.env.GCLOUD_PROJECT !== 'halo-skin-uk-stg') throw new Error('HALO ROTH integration requires the isolated staging project.');
   verifyRothBusinessIdentity('', rothBusinessId.value());
-  const origin = rothApiOrigin.value();
-  if (!origin) throw new Error('HALO is not registered with the ROTH staging merchant API yet.');
+  const origin = assertHaloRothStagingApiOrigin(rothApiOrigin.value());
   return haloRothIntegration(createRothMerchantClient({
     baseUrl: origin,
     keyId: rothMerchantKeyId.value(),
@@ -174,6 +175,9 @@ exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstan
   if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
   if (request.method === 'OPTIONS') return response.status(204).end();
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to begin checkout.');
+  if (!isSyntheticStagingCheckoutEnabled({ projectId: process.env.GCLOUD_PROJECT, enabled: syntheticStagingCheckout.value() })) {
+    return sendError(response, 503, 'checkout_disabled', 'Synthetic HALO checkout is not enabled for this staging deployment.');
+  }
   let orderRef;
   let items;
   try {
@@ -375,6 +379,9 @@ exports.createRothOrder = onRequest({ region, invoker: 'public', maxInstances: 2
   response.set('Cache-Control', 'no-store');
   if (request.method === 'OPTIONS') return response.status(204).end();
   if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to pay with your HALO ROTH allocation.');
+  if (!isSyntheticStagingCheckoutEnabled({ projectId: process.env.GCLOUD_PROJECT, enabled: syntheticStagingCheckout.value() })) {
+    return sendError(response, 503, 'checkout_disabled', 'Synthetic HALO checkout is not enabled for this staging deployment.');
+  }
 
   let identity;
   let orderRef;
@@ -399,6 +406,8 @@ exports.createRothOrder = onRequest({ region, invoker: 'public', maxInstances: 2
     if (new Set(productIds).size !== productIds.length) return sendError(response, 422, 'invalid_basket', 'Basket contains repeated products. Refresh and try again.');
     const orderId = hash(requestKey).slice(0, 32);
     orderRef = db.collection('haloOrders').doc(orderId);
+    // Fail closed before the Firestore transaction can reserve any stock.
+    const roth = rothIntegration();
     await db.runTransaction(async transaction => {
       const existing = await transaction.get(orderRef);
       if (existing.exists) {
@@ -451,7 +460,7 @@ exports.createRothOrder = onRequest({ region, invoker: 'public', maxInstances: 2
     }
     await processRothOrderPayment({
       orderId: orderRef.id, order: { id: orderRef.id, ...savedOrder }, externalId: identity.uid,
-      expectedBusinessId: rothBusinessId.value(), roth: rothIntegration(),
+      expectedBusinessId: rothBusinessId.value(), roth,
       persistReservation: async ({ reservationId, status }) => {
         await orderRef.set({ rothReservationId: reservationId, rothReservationStatus: status, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       },

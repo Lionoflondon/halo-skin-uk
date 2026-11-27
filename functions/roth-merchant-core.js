@@ -3,6 +3,8 @@
 const { createHash, createHmac, randomUUID } = require('node:crypto');
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
+// Pinned to the ROTH staging service verified in the ROTH Stage 9C specification.
+const HALO_ROTH_STAGING_API_ORIGIN = 'https://roth-stage-api-ger4wyyrja-nw.a.run.app';
 const integrationReference = (operation, id) => {
   if (typeof id !== 'string' || !id.trim() || id.length > 200) throw new Error('A stable HALO reference is required.');
   return `integration_${sha256(JSON.stringify([operation, id]))}`;
@@ -16,6 +18,15 @@ function verifyRothBusinessIdentity(actualBusinessId, expectedBusinessId, { requ
   if (requireActual && (typeof actualBusinessId !== 'string' || !actualBusinessId.trim())) throw new Error('ROTH did not return its merchant business identity.');
   if (actualBusinessId && actualBusinessId !== expectedBusinessId) throw new Error('ROTH merchant credential resolved to a different Rothcross business.');
   return expectedBusinessId;
+}
+
+function assertHaloRothStagingApiOrigin(value) {
+  let parsed;
+  try { parsed = new URL(value); } catch (_) { throw new Error('HALO ROTH requires the verified ROTH staging API origin.'); }
+  if (parsed.origin !== HALO_ROTH_STAGING_API_ORIGIN || parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username || parsed.password) {
+    throw new Error('HALO ROTH requires the verified ROTH staging API origin.');
+  }
+  return parsed.origin;
 }
 
 function createRothMerchantClient({ baseUrl, keyId, secret, fetchImpl = fetch, clock = () => new Date(), nonceFactory = randomUUID }) {
@@ -126,4 +137,4 @@ function haloRothIntegration(client) {
   };
 }
 
-module.exports = { createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity };
+module.exports = { HALO_ROTH_STAGING_API_ORIGIN, assertHaloRothStagingApiOrigin, createRothMerchantClient, haloRothIntegration, integrationReference, verifyRothBusinessIdentity };
