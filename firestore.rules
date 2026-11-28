@@ -5,12 +5,21 @@ service cloud.firestore {
     function isHaloAdmin() {
       return request.auth != null
         && request.auth.token.email_verified == true
+        && request.auth.token.firebase.get('sign_in_second_factor', '') != ''
         && request.auth.token.email == 'ayojason600@gmail.com';
     }
 
     match /products/{productId} {
       allow read: if resource.data.published == true || isHaloAdmin();
-      allow create, update, delete: if isHaloAdmin();
+      allow create: if isHaloAdmin()
+        && request.resource.data.stockQuantity == null
+        && request.resource.data.reservedQuantity == 0;
+      allow update: if isHaloAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['stockQuantity', 'reservedQuantity', 'inventoryCountedAt', 'inventoryCountedBy']);
+      allow delete: if isHaloAdmin()
+        && resource.data.stockQuantity == 0
+        && resource.data.reservedQuantity == 0;
     }
 
     match /{document=**} {

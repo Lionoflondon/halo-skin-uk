@@ -1,0 +1,1244 @@
+'use strict';
+
+const { createHash } = require('node:crypto');
+const { getAuth } = require('firebase-admin/auth');
+const { getAppCheck } = require('firebase-admin/app-check');
+const { initializeApp } = require('firebase-admin/app');
+const { FieldPath, FieldValue, getFirestore } = require('firebase-admin/firestore');
+const { defineSecret, defineString } = require('firebase-functions/params');
+const { onRequest } = require('firebase-functions/v2/https');
+const { logger } = require('firebase-functions/logger');
+const Stripe = require('stripe');
+const { ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, STANDARD_DELIVERY_PENCE, assertHaloStagingProject, assertStripeAccountId, checkoutFingerprint, parseCart, requireTestStripeKey } = require('./halo-payment-core');
+const { HALO_STRIPE_BRAND, HALO_STRIPE_STORE, haloRefundOrderId, isHaloStripeMetadata, nextOrderStatus, stripeEventOrderUpdate, stripeRefundOrderUpdate, stripeRefundIdempotencyKey, validatePendingCheckoutCancellation } = require('./halo-order-core');
+const { customerOrderSummary } = require('./customer-order-core');
+const { AppCheckAccessError, requireVerifiedAppCheck } = require('./request-security-core');
+const { inventoryCountAdjustment, releaseInventory, reserveInventory } = require('./inventory-core');
+const { haloFinancialEntry, pendingHaloFinancialEntry, reconcilePendingHaloFinancialEntry, validateHaloCharge } = require('./halo-financial-core');
+const { assertHaloRothStagingApiOrigin, createRothMerchantClient, haloRothIntegration, verifyRothBusinessIdentity } = require('./roth-merchant-core');
+const { normalizeHaloShippingDetails, processRothOrderPayment, rothOrderFingerprint } = require('./roth-order-core');
+const { isSyntheticStagingCheckoutEnabled } = require('./synthetic-checkout-core');
+const { logHaloServerFailure } = require('./observability-core');
+
+initializeApp();
+const db = getFirestore();
+const stripeSecret = defineSecret('STRIPE_SECRET_KEY');
+const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
+const rothApiOrigin = defineString('HALO_ROTH_API_ORIGIN', { default: '' });
+const rothMerchantKeyId = defineString('HALO_ROTH_MERCHANT_KEY_ID', { default: '' });
+const rothBusinessId = defineString('HALO_ROTH_BUSINESS_ID', { default: '' });
+const rothMerchantSecret = defineSecret('HALO_ROTH_MERCHANT_SECRET');
+const syntheticStagingCheckout = defineString('HALO_SYNTHETIC_STAGING_CHECKOUT_ENABLED', { default: 'false' });
+const siteUrl = defineString('HALO_SITE_URL', { default: 'https://haloskinuk.com' });
+const allowedOrigins = defineString('HALO_CHECKOUT_ALLOWED_ORIGINS', { default: 'https://haloskinuk.com,https://www.haloskinuk.com' });
+const region = 'europe-west2';
+const HALO_ADMIN_EMAIL = 'ayojason600@gmail.com';
+
+class AdminAccessError extends Error {}
+class CustomerAccessError extends Error {}
+
+async function requireAppCheck(request) {
+  await requireVerifiedAppCheck(request, token => getAppCheck().verifyToken(token));
+}
+
+async function requireHaloAdmin(request) {
+  await requireAppCheck(request);
+  const match = /^Bearer (.+)$/.exec(request.get('authorization') || '');
+  if (!match) throw new AdminAccessError('Sign in to Halo Admin.');
+  const token = await getAuth().verifyIdToken(match[1], true);
+  if (token.email !== HALO_ADMIN_EMAIL || token.email_verified !== true || !token.firebase?.sign_in_second_factor || Date.now() / 1000 - Number(token.auth_time || 0) > 300) {
+    throw new AdminAccessError('A recently authenticated Halo administrator session with MFA is required.');
+  }
+  return token;
+}
+
+async function requireVerifiedHaloCustomer(request) {
+  await requireAppCheck(request);
+  const match = /^Bearer (.+)$/.exec(request.get('authorization') || '');
+  if (!match) throw new CustomerAccessError('Sign in to your verified HALO customer account.');
+  let identity;
+  try { identity = await getAuth().verifyIdToken(match[1], true); }
+  catch (_) { throw new CustomerAccessError('Your HALO session has expired. Sign in again.'); }
+  if (identity.email_verified !== true) throw new CustomerAccessError('Verify your HALO account email first.');
+  return identity;
+}
+
+function rothIntegration() {
+  if (process.env.GCLOUD_PROJECT !== 'halo-skin-uk-stg') throw new Error('HALO ROTH integration requires the isolated staging project.');
+  verifyRothBusinessIdentity('', rothBusinessId.value());
+  const origin = assertHaloRothStagingApiOrigin(rothApiOrigin.value());
+  return haloRothIntegration(createRothMerchantClient({
+    baseUrl: origin,
+    keyId: rothMerchantKeyId.value(),
+    secret: rothMerchantSecret.value()
+  }));
+}
+
+function stripeClient() {
+  assertHaloStagingProject(process.env.GCLOUD_PROJECT);
+  return new Stripe(requireTestStripeKey(stripeSecret.value()));
+}
+async function assertRothcrossStripeAccount(stripe) {
+  const account = await stripe.accounts.retrieve();
+  const expected = ROTHCROSS_STRIPE_TEST_ACCOUNT_ID;
+  assertStripeAccountId(expected, account.id);
+}
+function inventoryMovementRef(orderId, productId) {
+  return db.collection('haloInventoryMovements').doc(hash(`${orderId}:${productId}`).slice(0, 32));
+}
+function balanceTransactionFrom(source) {
+  return typeof source?.balance_transaction === 'object' ? source.balance_transaction : null;
+}
+async function resolveBalanceTransaction(stripe, source) {
+  const embedded = balanceTransactionFrom(source);
+  if (embedded) return embedded;
+  const id = typeof source?.balance_transaction === 'string' ? source.balance_transaction : '';
+  if (!id) return null;
+  return stripe.balanceTransactions.retrieve(id);
+}
+async function commitReservedInventory(transaction, orderRef, order) {
+  if (order.inventoryStatus !== 'reserved') return {};
+  const productRefs = order.items.map(item => db.collection('products').doc(item.id));
+  const movementRefs = order.items.map(item => inventoryMovementRef(orderRef.id, item.id));
+  const snapshots = await Promise.all([...productRefs, ...movementRefs].map(ref => transaction.get(ref)));
+  const productSnapshots = snapshots.slice(0, productRefs.length);
+  const movementSnapshots = snapshots.slice(productRefs.length);
+  if (productSnapshots.some((snapshot, index) => !snapshot.exists ||
+      !Number.isSafeInteger(snapshot.data().reservedQuantity) || snapshot.data().reservedQuantity < order.items[index].quantity) ||
+      movementSnapshots.some(snapshot => !snapshot.exists || snapshot.data().status !== 'reserved')) {
+    throw new Error('HALO inventory reservation is inconsistent.');
+  }
+  order.items.forEach((item, index) => {
+    transaction.update(productRefs[index], {
+      reservedQuantity: productSnapshots[index].data().reservedQuantity - item.quantity,
+      inventoryUpdatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(movementRefs[index], { status: 'sold', committedAt: FieldValue.serverTimestamp() });
+  });
+  return { inventoryStatus: 'committed' };
+}
+async function releaseReservedInventory(transaction, orderRef, order, reason) {
+  if (order.inventoryStatus !== 'reserved') return {};
+  const productRefs = order.items.map(item => db.collection('products').doc(item.id));
+  const movementRefs = order.items.map(item => inventoryMovementRef(orderRef.id, item.id));
+  const snapshots = await Promise.all([...productRefs, ...movementRefs].map(ref => transaction.get(ref)));
+  const productSnapshots = snapshots.slice(0, productRefs.length);
+  const movementSnapshots = snapshots.slice(productRefs.length);
+  if (productSnapshots.some(snapshot => !snapshot.exists) ||
+      movementSnapshots.some(snapshot => !snapshot.exists || snapshot.data().status !== 'reserved')) {
+    throw new Error('HALO inventory reservation is inconsistent; reconcile stock before release.');
+  }
+  order.items.forEach((item, index) => {
+    const product = productSnapshots[index].data();
+    const released = releaseInventory(product, item.quantity);
+    transaction.update(productRefs[index], {
+      ...released, inventoryUpdatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(movementRefs[index], {
+      status: 'released', reason, releasedAt: FieldValue.serverTimestamp()
+    });
+  });
+  return { inventoryStatus: 'released' };
+}
+async function failRothOrderBeforeReservation(orderRef, reason, expectedReservationId = '') {
+  const eventRef = orderRef.collection('events').doc(`roth_failed_${hash(orderRef.id).slice(0, 24)}`);
+  return db.runTransaction(async transaction => {
+    const [orderSnapshot, eventSnapshot] = await Promise.all([transaction.get(orderRef), transaction.get(eventRef)]);
+    if (!orderSnapshot.exists) return false;
+    const order = { id: orderRef.id, ...orderSnapshot.data() };
+    if (order.paymentProvider !== 'roth' || order.status !== 'pending_payment' || order.paymentStatus !== 'pending' ||
+        (order.rothReservationId && order.rothReservationId !== expectedReservationId) ||
+        (expectedReservationId && order.rothReservationId !== expectedReservationId)) return false;
+    const inventoryPatch = await releaseReservedInventory(transaction, orderRef, order, reason);
+    transaction.update(orderRef, { ...inventoryPatch, paymentStatus: 'failed', updatedAt: FieldValue.serverTimestamp() });
+    if (!eventSnapshot.exists) transaction.create(eventRef, {
+      type: 'roth.checkout_rejected', orderId: orderRef.id, reason, at: FieldValue.serverTimestamp()
+    });
+    return true;
+  });
+}
+function sendError(response, status, code, message) {
+  logHaloServerFailure(logger, status, code);
+  response.set('Cache-Control', 'no-store').status(status).json({ error: code, message });
+}
+function hash(value) { return createHash('sha256').update(value).digest('hex'); }
+function setCors(request, response) {
+  const origin = request.get('origin') || '';
+  const allowed = allowedOrigins.value().split(',').map(value => value.trim()).filter(Boolean);
+  if (origin && allowed.includes(origin)) {
+    response.set('Access-Control-Allow-Origin', origin).set('Vary', 'Origin');
+    response.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    response.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, Idempotency-Key, X-Firebase-AppCheck');
+  }
+  return Boolean(origin && allowed.includes(origin));
+}
+
+exports.createCheckoutSession = onRequest({ region, invoker: 'public', maxInstances: 3, timeoutSeconds: 30, secrets: [stripeSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to begin checkout.');
+  if (!isSyntheticStagingCheckoutEnabled({ projectId: process.env.GCLOUD_PROJECT, enabled: syntheticStagingCheckout.value() })) {
+    return sendError(response, 503, 'checkout_disabled', 'Synthetic HALO checkout is not enabled for this staging deployment.');
+  }
+  let orderRef;
+  let items;
+  try {
+    await requireAppCheck(request);
+    const requestKey = request.get('idempotency-key') || '';
+    if (requestKey.length < 16 || requestKey.length > 128) return sendError(response, 400, 'idempotency_key_required', 'Refresh checkout and try again.');
+    const email = String(request.body?.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return sendError(response, 422, 'invalid_email', 'Enter a valid email address.');
+    let customerUid = null;
+    const authorization = request.get('authorization') || '';
+    if (authorization) {
+      const bearer = /^Bearer (.+)$/.exec(authorization);
+      if (!bearer) return sendError(response, 401, 'customer_sign_in_required', 'Sign in again to attach this order to your HALO account.');
+      let identity;
+      try { identity = await getAuth().verifyIdToken(bearer[1], true); }
+      catch (_) { return sendError(response, 401, 'customer_sign_in_required', 'Sign in again to attach this order to your HALO account.'); }
+      if (identity.email_verified !== true || String(identity.email || '').toLowerCase() !== email) {
+        return sendError(response, 403, 'customer_email_mismatch', 'Verify your account email and use it for this order.');
+      }
+      customerUid = identity.uid;
+    }
+    const deliveryMethod = String(request.body?.deliveryMethod || 'standard');
+    // Circum eligibility and delivery creation require a verified server-side
+    // integration; the browser postcode checker is not trusted for payment.
+    if (deliveryMethod !== 'standard') return sendError(response, 422, 'delivery_unavailable', 'This delivery option is not available at secure checkout yet.');
+    const requestItems = request.body?.items;
+    if (!Array.isArray(requestItems) || requestItems.length < 1 || requestItems.length > 20 ||
+        requestItems.some(item => !/^[a-z0-9][a-z0-9-]{0,99}$/.test(String(item?.id || '')))) {
+      return sendError(response, 422, 'invalid_basket', 'Basket is invalid. Refresh the catalogue and try again.');
+    }
+    const productIds = requestItems.map(item => String(item.id));
+    if (new Set(productIds).size !== productIds.length) return sendError(response, 422, 'invalid_basket', 'Basket contains repeated products. Refresh and try again.');
+    const orderId = hash(requestKey).slice(0, 32);
+    orderRef = db.collection('haloOrders').doc(orderId);
+    await db.runTransaction(async transaction => {
+      const existing = await transaction.get(orderRef);
+      if (existing.exists) {
+        const order = existing.data();
+        const existingFingerprint = checkoutFingerprint({ items: order.items || [], email, deliveryMethod, customerUid });
+        const requested = requestItems.map(item => ({ id: String(item.id), variantId: String(item.variantId || ''), quantity: Number(item.quantity) }));
+        const stored = (order.items || []).map(item => ({ id: item.id, variantId: item.variantId, quantity: item.quantity }));
+        if (order.requestFingerprint !== existingFingerprint || JSON.stringify(requested) !== JSON.stringify(stored)) {
+          throw new Error('This checkout key was already used for another basket.');
+        }
+        if (order.inventoryStatus !== 'reserved' || ['abandoned', 'failed'].includes(order.paymentStatus)) {
+          throw new Error('This checkout attempt has ended. Refresh checkout to start a new attempt.');
+        }
+        items = order.items;
+        return;
+      }
+      const productRefs = productIds.map(id => db.collection('products').doc(id));
+      const productSnapshots = await Promise.all(productRefs.map(ref => transaction.get(ref)));
+      const products = productSnapshots.map((snapshot, index) => ({ id: productIds[index], ...(snapshot.exists ? snapshot.data() : {}) }));
+      items = parseCart(requestItems, products);
+      const subtotal = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
+      if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000) throw new Error('Basket total is outside the allowed limit.');
+      const reservations = reserveInventory(products, items);
+      const movementRefs = items.map(item => inventoryMovementRef(orderId, item.id));
+      const priorMovements = await Promise.all(movementRefs.map(ref => transaction.get(ref)));
+      if (priorMovements.some(snapshot => snapshot.exists)) throw new Error('Inventory reservation already exists; refresh checkout.');
+      reservations.forEach((reservation, index) => {
+        transaction.update(productRefs[index], {
+          stockQuantity: reservation.stockQuantityAfter,
+          reservedQuantity: reservation.reservedQuantityAfter,
+          inventoryUpdatedAt: FieldValue.serverTimestamp()
+        });
+        transaction.create(movementRefs[index], {
+          type: 'checkout_reservation', status: 'reserved', orderId, productId: reservation.id,
+          quantity: reservation.quantity, brand: 'HALO', reservedAt: FieldValue.serverTimestamp()
+        });
+      });
+      const fingerprint = checkoutFingerprint({ items, email, deliveryMethod, customerUid });
+      transaction.create(orderRef, {
+        brand: 'HALO', status: 'pending_payment', paymentStatus: 'pending', currency: 'GBP',
+        items, subtotalPence: subtotal, deliveryPence: STANDARD_DELIVERY_PENCE,
+        totalPence: subtotal + STANDARD_DELIVERY_PENCE,
+        customerEmail: email, customerUid, deliveryMethod, requestFingerprint: fingerprint,
+        inventoryStatus: 'reserved', createdAt: FieldValue.serverTimestamp()
+      });
+    });
+    const subtotalPence = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
+    if (!Number.isSafeInteger(subtotalPence) || subtotalPence > 2_000_000) return sendError(response, 422, 'basket_limit', 'Basket total is outside the allowed limit.');
+    const order = (await orderRef.get()).data();
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment', payment_method_types: ['card'], customer_email: email,
+      client_reference_id: orderId,
+      line_items: [
+        ...items.map(item => ({ quantity: item.quantity, price_data: { currency: 'gbp', unit_amount: item.pricePence, product_data: { name: item.title } } })),
+        { quantity: 1, price_data: { currency: 'gbp', unit_amount: STANDARD_DELIVERY_PENCE, product_data: { name: 'HALO Standard Delivery' } } }
+      ],
+      shipping_address_collection: { allowed_countries: ['GB'] },
+      success_url: `${siteUrl.value().replace(/\/$/, '')}/?payment=processing&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl.value().replace(/\/$/, '')}/?payment=cancelled`,
+      metadata: { store: HALO_STRIPE_STORE, brand: HALO_STRIPE_BRAND, orderId },
+      payment_intent_data: {
+        metadata: { store: HALO_STRIPE_STORE, brand: HALO_STRIPE_BRAND, orderId },
+        statement_descriptor_suffix: 'HALO SKIN UK'
+      }
+    }, { idempotencyKey: `halo_checkout_${orderId}` });
+    if (!session.url?.startsWith('https://checkout.stripe.com/')) throw new Error('Stripe did not return a hosted checkout URL.');
+    await orderRef.set({ stripeSessionId: session.id, stripeMode: 'test', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    response.set('Cache-Control', 'no-store').status(200).json({ url: session.url, orderId });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (orderRef && items) {
+      try {
+        await db.runTransaction(async transaction => {
+          const snapshot = await transaction.get(orderRef);
+          if (!snapshot.exists) return;
+          const order = snapshot.data();
+          if (!order.stripeSessionId && order.inventoryStatus === 'reserved') {
+            const inventoryPatch = await releaseReservedInventory(transaction, orderRef, order, 'checkout_setup_failed');
+            transaction.update(orderRef, { ...inventoryPatch, paymentStatus: 'failed', updatedAt: FieldValue.serverTimestamp() });
+          }
+        });
+      } catch (_) { /* Preserve the primary checkout failure; an unresolved reservation remains visible for admin review. */ }
+    }
+    sendError(response, error instanceof AppCheckAccessError ? 403 : /basket|item|price|email|delivery|checkout key|allowed limit|stock|inventory/i.test(message) ? 422 : 503,
+      'checkout_unavailable', message || 'Secure checkout is temporarily unavailable.');
+  }
+});
+
+exports.customerOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to view your HALO orders.');
+  const bearer = /^Bearer (.+)$/.exec(request.get('authorization') || '');
+  if (!bearer) return sendError(response, 401, 'sign_in_required', 'Sign in to view your HALO orders.');
+  let identity;
+  try {
+    await requireAppCheck(request);
+  } catch (error) {
+    return sendError(response, 403, 'app_check_required', error.message);
+  }
+  try {
+    identity = await getAuth().verifyIdToken(bearer[1], true);
+  } catch (_) {
+    return sendError(response, 401, 'sign_in_required', 'Your session has expired. Sign in again to view your orders.');
+  }
+  if (identity.email_verified !== true) return sendError(response, 403, 'email_verification_required', 'Verify your account email to view order history.');
+  try {
+    const snapshot = await db.collection('haloOrders').where('customerUid', '==', identity.uid).orderBy('createdAt', 'desc').limit(50).get();
+    const orders = snapshot.docs
+      .map(document => customerOrderSummary(document.id, document.data()))
+      .filter(Boolean)
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    response.set('Cache-Control', 'no-store').status(200).json({ orders });
+  } catch (_) {
+    sendError(response, 503, 'orders_unavailable', 'Your order history is temporarily unavailable. Try again shortly.');
+  }
+});
+
+if (rothApiOrigin.value() && rothMerchantKeyId.value() && rothBusinessId.value()) {
+exports.rothLinkStart = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to link your ROTH wallet.');
+  try {
+    const identity = await requireVerifiedHaloCustomer(request);
+    const result = await rothIntegration().startLink(identity.uid);
+    if (typeof result.code !== 'string' || !result.code || !Number.isSafeInteger(result.expiresInSeconds) || result.expiresInSeconds < 1) throw new Error('ROTH returned an invalid wallet-link response.');
+    response.set('Cache-Control', 'no-store').status(200).json({ code: result.code, expiresInSeconds: result.expiresInSeconds });
+  } catch (error) {
+    if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 409 : 503,
+      error.code || 'roth_link_unavailable', error.status ? 'ROTH could not start wallet linking. Try again shortly.' : 'ROTH wallet linking is not configured or is temporarily unavailable for HALO.');
+  }
+});
+
+exports.rothWallet = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to view your ROTH wallet allocation.');
+  try {
+    const identity = await requireVerifiedHaloCustomer(request);
+    const wallet = await rothIntegration().wallet(identity.uid);
+    verifyRothBusinessIdentity(wallet?.businessId, rothBusinessId.value(), { requireActual: true });
+    if (!Number.isSafeInteger(wallet.allocatedPence) || !Number.isSafeInteger(wallet.reservedPence)) {
+      throw new Error('ROTH returned an invalid wallet response.');
+    }
+    response.set('Cache-Control', 'no-store').status(200).json({
+      businessId: wallet.businessId,
+      allocatedPence: wallet.allocatedPence,
+      reservedPence: wallet.reservedPence
+    });
+  } catch (error) {
+    if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : 503,
+      error.code || 'roth_wallet_unavailable', error.status ? 'Your ROTH wallet could not be read. If you have not linked it yet, start linking first.' : 'ROTH wallet services are not configured or are temporarily unavailable for HALO.');
+  }
+});
+
+exports.createRothOrder = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 60, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to pay with your HALO ROTH allocation.');
+  if (!isSyntheticStagingCheckoutEnabled({ projectId: process.env.GCLOUD_PROJECT, enabled: syntheticStagingCheckout.value() })) {
+    return sendError(response, 503, 'checkout_disabled', 'Synthetic HALO checkout is not enabled for this staging deployment.');
+  }
+
+  let identity;
+  let orderRef;
+  let items;
+  try {
+    await requireAppCheck(request);
+    identity = await requireVerifiedHaloCustomer(request);
+    const requestKey = request.get('idempotency-key') || '';
+    if (requestKey.length < 16 || requestKey.length > 128) return sendError(response, 400, 'idempotency_key_required', 'Refresh checkout and try again.');
+    const email = String(request.body?.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || String(identity.email || '').toLowerCase() !== email) {
+      return sendError(response, 403, 'customer_email_mismatch', 'Verify your account email and use it for this order.');
+    }
+    if (request.body?.deliveryMethod !== 'standard') return sendError(response, 422, 'delivery_unavailable', 'This delivery option is not available at secure checkout yet.');
+    const shippingDetails = normalizeHaloShippingDetails(request.body?.shippingDetails);
+    const requestItems = request.body?.items;
+    if (!Array.isArray(requestItems) || requestItems.length < 1 || requestItems.length > 20 ||
+        requestItems.some(item => !/^[a-z0-9][a-z0-9-]{0,99}$/.test(String(item?.id || '')))) {
+      return sendError(response, 422, 'invalid_basket', 'Basket is invalid. Refresh the catalogue and try again.');
+    }
+    const productIds = requestItems.map(item => String(item.id));
+    if (new Set(productIds).size !== productIds.length) return sendError(response, 422, 'invalid_basket', 'Basket contains repeated products. Refresh and try again.');
+    const orderId = hash(requestKey).slice(0, 32);
+    orderRef = db.collection('haloOrders').doc(orderId);
+    // Fail closed before the Firestore transaction can reserve any stock.
+    const roth = rothIntegration();
+    await db.runTransaction(async transaction => {
+      const existing = await transaction.get(orderRef);
+      if (existing.exists) {
+        const order = existing.data();
+        const fingerprint = rothOrderFingerprint({ items: order.items || [], email, deliveryMethod: 'standard', customerUid: identity.uid, shippingDetails });
+        const requested = requestItems.map(item => ({ id: String(item.id), variantId: String(item.variantId || ''), quantity: Number(item.quantity) }));
+        const stored = (order.items || []).map(item => ({ id: item.id, variantId: item.variantId, quantity: item.quantity }));
+        if (order.paymentProvider !== 'roth' || order.requestFingerprint !== fingerprint || JSON.stringify(requested) !== JSON.stringify(stored)) {
+          throw new Error('This checkout key was already used for another basket or payment method.');
+        }
+        if (order.paymentStatus === 'paid' && order.rothJournalId) { items = order.items; return; }
+        if (order.inventoryStatus !== 'reserved' || order.paymentStatus !== 'pending') throw new Error('This checkout attempt has ended. Refresh checkout to start a new attempt.');
+        items = order.items;
+        return;
+      }
+      const productRefs = productIds.map(id => db.collection('products').doc(id));
+      const productSnapshots = await Promise.all(productRefs.map(ref => transaction.get(ref)));
+      const products = productSnapshots.map((snapshot, index) => ({ id: productIds[index], ...(snapshot.exists ? snapshot.data() : {}) }));
+      items = parseCart(requestItems, products);
+      const subtotal = items.reduce((sum, item) => sum + item.pricePence * item.quantity, 0);
+      if (!Number.isSafeInteger(subtotal) || subtotal + STANDARD_DELIVERY_PENCE > 2_000_000) throw new Error('Basket total is outside the allowed limit.');
+      const reservations = reserveInventory(products, items);
+      const movementRefs = items.map(item => inventoryMovementRef(orderId, item.id));
+      const priorMovements = await Promise.all(movementRefs.map(ref => transaction.get(ref)));
+      if (priorMovements.some(snapshot => snapshot.exists)) throw new Error('Inventory reservation already exists; refresh checkout.');
+      reservations.forEach((reservation, index) => {
+        transaction.update(productRefs[index], {
+          stockQuantity: reservation.stockQuantityAfter,
+          reservedQuantity: reservation.reservedQuantityAfter,
+          inventoryUpdatedAt: FieldValue.serverTimestamp()
+        });
+        transaction.create(movementRefs[index], {
+          type: 'checkout_reservation', status: 'reserved', orderId, productId: reservation.id,
+          quantity: reservation.quantity, brand: 'HALO', reservedAt: FieldValue.serverTimestamp()
+        });
+      });
+      const requestFingerprint = rothOrderFingerprint({ items, email, deliveryMethod: 'standard', customerUid: identity.uid, shippingDetails });
+      transaction.create(orderRef, {
+        brand: 'HALO', paymentProvider: 'roth', status: 'pending_payment', paymentStatus: 'pending', currency: 'GBP',
+        items, subtotalPence: subtotal, deliveryPence: STANDARD_DELIVERY_PENCE,
+        totalPence: subtotal + STANDARD_DELIVERY_PENCE, customerEmail: email, customerUid: identity.uid,
+        deliveryMethod: 'standard', shippingDetails, requestFingerprint, inventoryStatus: 'reserved',
+        createdAt: FieldValue.serverTimestamp()
+      });
+    });
+
+    const savedOrder = (await orderRef.get()).data();
+    if (savedOrder.paymentStatus === 'paid' && savedOrder.rothJournalId) {
+      return response.set('Cache-Control', 'no-store').status(200).json({ orderId: orderRef.id, paymentStatus: 'paid', duplicate: true });
+    }
+    await processRothOrderPayment({
+      orderId: orderRef.id, order: { id: orderRef.id, ...savedOrder }, externalId: identity.uid,
+      expectedBusinessId: rothBusinessId.value(), roth,
+      persistReservation: async ({ reservationId, status }) => {
+        await orderRef.set({ rothReservationId: reservationId, rothReservationStatus: status, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      },
+      commit: async ({ reservationId, journalId, amountPence }) => {
+        const eventRef = orderRef.collection('events').doc(`roth_paid_${hash(orderRef.id).slice(0, 24)}`);
+        return db.runTransaction(async transaction => {
+          const [orderSnapshot, eventSnapshot] = await Promise.all([transaction.get(orderRef), transaction.get(eventRef)]);
+          if (!orderSnapshot.exists) throw new Error('HALO order was not found during ROTH confirmation.');
+          const current = { id: orderRef.id, ...orderSnapshot.data() };
+          if (current.paymentStatus === 'paid') {
+            if (current.rothJournalId !== journalId) throw new Error('HALO ROTH payment requires manual reconciliation.');
+            return;
+          }
+          if (current.brand !== 'HALO' || current.paymentProvider !== 'roth' || current.status !== 'pending_payment' || current.paymentStatus !== 'pending' ||
+              current.totalPence !== amountPence || current.rothReservationId !== reservationId) {
+            throw new Error('HALO ROTH confirmation does not match the pending order.');
+          }
+          const inventoryPatch = await commitReservedInventory(transaction, orderRef, current);
+          transaction.update(orderRef, {
+            ...inventoryPatch, status: 'paid', paymentStatus: 'paid', rothReservationStatus: 'confirmed',
+            rothJournalId: journalId, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+          });
+          if (!eventSnapshot.exists) transaction.create(eventRef, {
+            type: 'roth.redemption.confirmed', orderId: orderRef.id, reservationId, journalId,
+            amountPence, source: 'roth_checkout', at: FieldValue.serverTimestamp()
+          });
+        });
+      }
+    });
+    response.set('Cache-Control', 'no-store').status(200).json({ orderId: orderRef.id, paymentStatus: 'paid' });
+  } catch (error) {
+    if (error instanceof CustomerAccessError) return sendError(response, /Verify/.test(error.message) ? 403 : 401, 'customer_auth_required', error.message);
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    const code = error.code || 'roth_checkout_unavailable';
+    if (orderRef && ['insufficient_balance', 'identity_not_linked', 'reservation_expired'].includes(code)) {
+      try { await failRothOrderBeforeReservation(orderRef, code, error.reservationId || ''); } catch (_) { /* Leave the order visible for recovery if inventory cannot be safely released. */ }
+    }
+    const status = error.status || (error.message.includes('checkout key') || error.message.includes('stock') || error.message.includes('basket') ? 409 : 503);
+    const message = code === 'insufficient_balance'
+      ? 'Your HALO ROTH allocation does not cover the full order. Increase your HALO allocation or choose card checkout.'
+      : code === 'identity_not_linked'
+        ? 'Link your ROTH wallet to HALO before paying with ROTH credits.'
+        : code === 'reservation_expired' || code === 'reservation_state'
+          ? 'This ROTH checkout attempt expired. Refresh checkout to start a new attempt.'
+          : error.message.includes('checkout key') ? error.message : 'ROTH checkout is temporarily unavailable. Your order will need payment reconciliation before retrying.';
+    sendError(response, status, code, message);
+  }
+});
+
+exports.rothIssueReward = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This Halo Admin origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to issue an authorised ROTH reward.');
+  let admin;
+  try { admin = await requireHaloAdmin(request); }
+  catch (error) {
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    return sendError(response, 401, 'admin_auth_required', error.message || 'A recently authenticated Halo administrator session with MFA is required.');
+  }
+  const idempotencyKey = request.get('idempotency-key') || '';
+  const handle = String(request.body?.handle || '').trim();
+  const campaignId = String(request.body?.campaignId || '').trim();
+  const reason = String(request.body?.reason || '').trim();
+  const amountPence = request.body?.amountPence;
+  if (idempotencyKey.length < 16 || idempotencyKey.length > 128 || !handle || handle.length > 100 ||
+      !campaignId || campaignId.length > 100 || !reason || reason.length > 300 ||
+      !Number.isSafeInteger(amountPence) || amountPence < 1) {
+    return sendError(response, 422, 'reward_input_invalid', 'Provide a customer handle, positive amount in pence, campaign, reason and stable request key.');
+  }
+  try {
+    const result = await rothIntegration().issueReward({ handle, rewardId: idempotencyKey, amountPence, campaignId, reason });
+    verifyRothBusinessIdentity(result.businessId, rothBusinessId.value());
+    const rewardRef = db.collection('haloRothRewards').doc(hash(idempotencyKey));
+    await rewardRef.set({
+      brand: 'HALO', store: 'halo', provider: 'ROTH', externalReferenceHash: hash(idempotencyKey),
+      handleHash: hash(handle.toLowerCase()), amountPence, campaignId, reason,
+      rothJournalId: String(result.id || result.journalId || ''), status: 'issued',
+      issuedByUid: admin.uid, issuedByEmail: admin.email, createdAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    response.set('Cache-Control', 'no-store').status(200).json({ status: 'issued', journalId: result.id || result.journalId || null });
+  } catch (error) {
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : error.status === 409 ? 409 : 503,
+      error.code || 'roth_reward_unavailable', error.status ? 'ROTH did not accept this reward. Check the HALO merchant scope and staging allowance.' : 'ROTH reward issuance is not configured or is temporarily unavailable for HALO.');
+  }
+});
+
+exports.rothSettlements = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (request.get('origin') && !setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This Halo Admin origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to read HALO settlement attribution.');
+  try {
+    await requireHaloAdmin(request);
+    const result = await rothIntegration().settlements();
+    if (Array.isArray(result.items)) {
+      for (const item of result.items) verifyRothBusinessIdentity(item.businessId, rothBusinessId.value(), { requireActual: true });
+    }
+    const items = Array.isArray(result.items) ? result.items.slice(0, 500).map(item => ({
+      id: String(item.id || ''), businessId: String(item.businessId || ''),
+      issuingEntityId: String(item.issuingEntityId || ''), createdAt: item.createdAt?.toDate?.().toISOString() ||
+        (typeof item.createdAt === 'string' ? item.createdAt : Number.isSafeInteger(item.createdAt?._seconds) ? new Date(item.createdAt._seconds * 1000).toISOString() : null),
+      funding: String(item.funding || ''), amountPence: Number.isSafeInteger(item.amountPence) ? item.amountPence : null,
+      status: String(item.status || ''), reservationId: String(item.reservationId || '')
+    })) : [];
+    const netByCounterparty = Object.fromEntries(Object.entries(result.netByCounterparty || {}).slice(0, 100)
+      .filter(([name, amount]) => typeof name === 'string' && Number.isSafeInteger(amount)));
+    response.status(200).json({ merchantBusinessId: rothBusinessId.value(), items, netByCounterparty });
+  } catch (error) {
+    if (error instanceof AppCheckAccessError) return sendError(response, 403, 'app_check_required', error.message);
+    if (error instanceof AdminAccessError) return sendError(response, 401, 'admin_auth_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : 503,
+      error.code || 'roth_settlement_unavailable', error.status ? 'ROTH settlement reporting is unavailable for HALO.' : 'ROTH merchant reporting is not configured or is temporarily unavailable for HALO.');
+  }
+});
+
+exports.requestHaloRothRefund = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 30, secrets: [rothMerchantSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO administrator origin is not allowed.');
+  response.set('Cache-Control', 'no-store');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to refund a HALO ROTH order.');
+  try {
+    const admin = await requireHaloAdmin(request);
+    const orderId = String(request.body?.orderId || '');
+    const amountPence = Number(request.body?.amountPence);
+    const reason = String(request.body?.reason || '').trim().slice(0, 240);
+    const requestKey = request.get('idempotency-key') || '';
+    if (!/^[a-f0-9]{32}$/.test(orderId) || !Number.isSafeInteger(amountPence) || amountPence < 1 ||
+        !reason || requestKey.length < 16 || requestKey.length > 128) {
+      return sendError(response, 422, 'invalid_refund', 'Provide an order, positive amount, reason and idempotency key.');
+    }
+    const orderRef = db.collection('haloOrders').doc(orderId);
+    const orderSnapshot = await orderRef.get();
+    if (!orderSnapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
+    const order = orderSnapshot.data();
+    if (order.brand !== 'HALO' || order.paymentProvider !== 'roth' || !order.rothJournalId ||
+        !['paid', 'processing', 'dispatched', 'delivered'].includes(order.status)) {
+      return sendError(response, 409, 'refund_unavailable', 'Only paid HALO ROTH orders can be refunded here.');
+    }
+    if (amountPence > order.totalPence - Number(order.refundedPence || 0)) return sendError(response, 422, 'refund_exceeds_remaining', 'Refund amount exceeds the remaining ROTH-paid total.');
+    const refundReference = `${orderId}:${requestKey}`;
+    const integration = rothIntegration();
+    const refund = await integration.refund({ refundId: refundReference, journalId: order.rothJournalId, amountPence, reason });
+    const refundJournalId = String(refund.journalId || refund.id || '');
+    if (!refundJournalId || (refund.amountPence !== undefined && refund.amountPence !== amountPence)) {
+      throw new Error('ROTH returned an invalid HALO refund confirmation.');
+    }
+    const refundReceipt = await integration.receipt(refundJournalId);
+    if (refundReceipt?.id !== refundJournalId || refundReceipt.type !== 'redemption_refunded' ||
+        refundReceipt.amountPence !== amountPence || refundReceipt.status !== 'posted') {
+      throw new Error('ROTH refund receipt does not match the requested HALO refund.');
+    }
+    const refundRef = db.collection('haloRothRefunds').doc(hash(refundReference));
+    const eventRef = orderRef.collection('events').doc(`roth_refund_${hash(refundReference).slice(0, 24)}`);
+    const result = await db.runTransaction(async transaction => {
+      const [currentOrderSnapshot, priorRefundSnapshot, eventSnapshot] = await Promise.all([
+        transaction.get(orderRef), transaction.get(refundRef), transaction.get(eventRef)
+      ]);
+      if (!currentOrderSnapshot.exists) throw new Error('HALO ROTH order disappeared during refund reconciliation.');
+      const current = currentOrderSnapshot.data();
+      if (current.paymentProvider !== 'roth' || current.rothJournalId !== order.rothJournalId || current.brand !== 'HALO') {
+        throw new Error('HALO ROTH refund attribution changed during processing.');
+      }
+      if (priorRefundSnapshot.exists) {
+        const prior = priorRefundSnapshot.data();
+        if (prior.orderId !== orderId || prior.amountPence !== amountPence || prior.rothRefundJournalId !== refundJournalId) {
+          throw new Error('HALO ROTH refund idempotency reference conflicts with an earlier request.');
+        }
+        return { refundId: refundJournalId, refundedPence: current.refundedPence || 0, duplicate: true };
+      }
+      const refundedPence = Number(current.refundedPence || 0) + amountPence;
+      if (!Number.isSafeInteger(refundedPence) || refundedPence > current.totalPence) throw new Error('HALO ROTH refund total requires manual reconciliation.');
+      transaction.create(refundRef, {
+        brand: 'HALO', store: 'halo', provider: 'ROTH', orderId, originalJournalId: order.rothJournalId,
+        rothRefundJournalId: refundJournalId, externalReferenceHash: hash(refundReference), amountPence,
+        reason, status: 'refunded', requestedByUid: admin.uid, recordedAt: FieldValue.serverTimestamp()
+      });
+      transaction.update(orderRef, {
+        refundedPence, paymentStatus: refundedPence === current.totalPence ? 'refunded' : 'partially_refunded',
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      if (!eventSnapshot.exists) transaction.create(eventRef, {
+        type: 'roth.redemption.refunded', orderId, originalJournalId: order.rothJournalId,
+        refundJournalId, amountPence, refundedPence, actorUid: admin.uid, at: FieldValue.serverTimestamp()
+      });
+      return { refundId: refundJournalId, refundedPence, duplicate: false };
+    });
+    response.set('Cache-Control', 'no-store').status(200).json(result);
+  } catch (error) {
+    if (error instanceof AppCheckAccessError || error instanceof AdminAccessError) return sendError(response, 403, 'admin_access_required', error.message);
+    sendError(response, error.status === 403 ? 403 : error.status === 404 ? 404 : error.status === 409 ? 409 : 503,
+      error.code || 'roth_refund_failed', error.status ? 'ROTH could not accept this refund. Check the order and settlement state.' : 'HALO ROTH refund could not be reconciled. Retry with the same idempotency key.');
+  }
+});
+}
+
+exports.adminOrders = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to list HALO orders.');
+  try {
+    await requireHaloAdmin(request);
+    const snapshot = await db.collection('haloOrders').orderBy('createdAt', 'desc').limit(100).get();
+    const orders = await Promise.all(snapshot.docs.map(async document => {
+      const order = document.data();
+      return {
+        id: document.id, status: order.status, paymentStatus: order.paymentStatus || 'pending',
+        paymentProvider: order.paymentProvider || 'stripe',
+        totalPence: order.totalPence, refundedPence: order.refundedPence || 0,
+        shippingDetails: order.shippingDetails || null,
+        deliveryMethod: order.deliveryMethod, trackingUrl: order.trackingUrl || null,
+        createdAt: order.createdAt?.toDate?.().toISOString() || null,
+        statusHistory: (await document.ref.collection('events').orderBy('at', 'desc').limit(8).get()).docs.map(event => {
+          const data = event.data();
+          return { type: data.type, from: data.from || null, to: data.to || null, reason: data.reason || null, actorEmail: data.actorEmail || null, at: data.at?.toDate?.().toISOString() || null };
+        }),
+        items: (order.items || []).map(item => ({ title: item.title, quantity: item.quantity }))
+      };
+    }));
+    response.set('Cache-Control', 'no-store').status(200).json({ orders });
+  } catch (error) {
+    const denied = error instanceof AppCheckAccessError || error instanceof AdminAccessError;
+    sendError(response, denied ? 403 : 503, 'admin_orders_unavailable', denied ? error.message : 'HALO orders could not be loaded. Try again shortly.');
+  }
+});
+
+exports.adminFinancialReport = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 60, secrets: [stripeSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO administrator origin is not allowed.');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'GET') return sendError(response, 405, 'method_not_allowed', 'Use GET to load financial reconciliation.');
+  try {
+    await requireHaloAdmin(request);
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    const pageSize = 500;
+    const maximumScanned = 10000;
+    const entries = [];
+    let scannedCount = 0;
+    let cursor = null;
+    let complete = false;
+    while (scannedCount < maximumScanned) {
+      const requestedLimit = Math.min(pageSize, maximumScanned - scannedCount);
+      let query = db.collection('haloFinancialEntries').orderBy('recordedAt', 'desc').limit(requestedLimit);
+      if (cursor) query = query.startAfter(cursor);
+      const snapshot = await query.get();
+      const page = snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
+      scannedCount += snapshot.size;
+      entries.push(...page.filter(entry => entry.brand === 'HALO' && entry.store === 'halo' && entry.stripeAccountId === ROTHCROSS_STRIPE_TEST_ACCOUNT_ID));
+      if (snapshot.size < requestedLimit) {
+        complete = true;
+        break;
+      }
+      cursor = snapshot.docs[snapshot.docs.length - 1];
+      if (!cursor) { complete = true; break; }
+    }
+    const reconciled = entries.filter(entry => entry.reconciliationStatus === 'reconciled' && entry.currency === 'GBP');
+    const pending = entries.filter(entry => entry.reconciliationStatus !== 'reconciled' || entry.currency !== 'GBP');
+    const recent = entries.slice(0, 100);
+    const totals = reconciled.reduce((result, entry) => {
+      result.grossPence += entry.grossPence;
+      result.feePence += entry.feePence;
+      result.netPence += entry.netPence;
+      return result;
+    }, { grossPence: 0, feePence: 0, netPence: 0 });
+    response.set('Cache-Control', 'no-store').status(200).json({
+      brand: 'HALO', stripeAccountId: ROTHCROSS_STRIPE_TEST_ACCOUNT_ID, currency: 'GBP', complete, scannedCount,
+      totals, reconciledCount: reconciled.length, pendingCount: pending.length,
+      entries: recent.map(({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }) => ({ id, orderId, sourceType, sourceId, grossPence, feePence, netPence, reconciliationStatus }))
+    });
+  } catch (error) {
+    if (error instanceof AdminAccessError) return sendError(response, 403, 'admin_access_required', error.message);
+    sendError(response, 503, 'financial_report_unavailable', 'HALO financial reconciliation could not be loaded.');
+  }
+});
+
+exports.adminReconcilePendingFinancialEntries = onRequest({ region, invoker: 'public', maxInstances: 2, timeoutSeconds: 60, secrets: [stripeSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO administrator origin is not allowed.');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to reconcile pending HALO balance transactions.');
+  try {
+    await requireHaloAdmin(request);
+    const batchSize = Number(request.body?.limit ?? 10);
+    const cursor = request.body?.cursor ?? null;
+    if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 25 ||
+        (cursor !== null && (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(cursor)))) {
+      return sendError(response, 422, 'invalid_reconciliation_batch', 'Choose a valid cursor and reconciliation batch from 1 to 25 entries.');
+    }
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    let query = db.collection('haloFinancialEntries')
+      .where('brand', '==', 'HALO')
+      .where('store', '==', 'halo')
+      .where('reconciliationStatus', '==', 'pending_balance_transaction')
+      .where('stripeAccountId', '==', ROTHCROSS_STRIPE_TEST_ACCOUNT_ID)
+      .orderBy(FieldPath.documentId())
+      .limit(batchSize);
+    if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+    let reconciledCount = 0;
+    let unresolvedCount = 0;
+    let deferredCount = 0;
+    let skippedCount = 0;
+
+    for (const document of snapshot.docs) {
+      const existingEntry = { id: document.id, ...document.data() };
+      if (existingEntry.brand !== 'HALO' || existingEntry.store !== 'halo' ||
+          existingEntry.stripeAccountId !== ROTHCROSS_STRIPE_TEST_ACCOUNT_ID) {
+        skippedCount += 1;
+        continue;
+      }
+      const validSource = existingEntry.sourceType === 'charge'
+        ? /^ch_[A-Za-z0-9]+$/.test(existingEntry.sourceId || '')
+        : existingEntry.sourceType === 'refund' && /^re_[A-Za-z0-9]+$/.test(existingEntry.sourceId || '');
+      if (!validSource || !/^pi_[A-Za-z0-9]+$/.test(existingEntry.paymentIntentId || '')) {
+        deferredCount += 1;
+        continue;
+      }
+      try {
+        const [source, paymentIntent] = await Promise.all([
+          existingEntry.sourceType === 'charge'
+            ? stripe.charges.retrieve(existingEntry.sourceId)
+            : stripe.refunds.retrieve(existingEntry.sourceId),
+          stripe.paymentIntents.retrieve(existingEntry.paymentIntentId)
+        ]);
+        const balanceTransaction = await resolveBalanceTransaction(stripe, source);
+        if (!balanceTransaction) {
+          unresolvedCount += 1;
+          continue;
+        }
+        const reconciledEntry = reconcilePendingHaloFinancialEntry({
+          existingEntry, source, paymentIntent, balanceTransaction,
+          stripeAccountId: ROTHCROSS_STRIPE_TEST_ACCOUNT_ID
+        });
+        const outcome = await db.runTransaction(async transaction => {
+          const currentSnapshot = await transaction.get(document.ref);
+          if (!currentSnapshot.exists) return 'changed';
+          const current = currentSnapshot.data();
+          if (current.reconciliationStatus === 'reconciled') return 'already_reconciled';
+          if (current.reconciliationStatus !== 'pending_balance_transaction' ||
+              current.sourceId !== existingEntry.sourceId || current.paymentIntentId !== existingEntry.paymentIntentId ||
+              current.orderId !== existingEntry.orderId || current.grossPence !== existingEntry.grossPence) return 'changed';
+          transaction.update(document.ref, { ...reconciledEntry, updatedAt: FieldValue.serverTimestamp() });
+          return 'reconciled';
+        });
+        if (outcome === 'reconciled' || outcome === 'already_reconciled') reconciledCount += 1;
+        else skippedCount += 1;
+      } catch (_) {
+        deferredCount += 1;
+      }
+    }
+
+    response.set('Cache-Control', 'no-store').status(200).json({
+      scannedCount: snapshot.size,
+      reconciledCount,
+      unresolvedCount,
+      deferredCount,
+      skippedCount,
+      hasMore: snapshot.size === batchSize,
+      nextCursor: snapshot.size === batchSize ? snapshot.docs[snapshot.docs.length - 1].id : null
+    });
+  } catch (error) {
+    if (error instanceof AppCheckAccessError || error instanceof AdminAccessError) return sendError(response, 403, 'admin_access_required', error.message);
+    sendError(response, 503, 'financial_reconciliation_unavailable', 'Pending HALO financial entries could not be reconciled.');
+  }
+});
+
+exports.updateHaloOrder = onRequest({
+  region, invoker: 'public', maxInstances: 3,
+  secrets: [stripeSecret, ...(rothApiOrigin.value() && rothMerchantKeyId.value() && rothBusinessId.value() ? [rothMerchantSecret] : [])]
+}, async (request, response) => {
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to update an order.');
+  try {
+    const admin = await requireHaloAdmin(request);
+    const orderId = String(request.body?.orderId || '');
+    const targetStatus = String(request.body?.status || '');
+    if (targetStatus === 'paid') return sendError(response, 422, 'payment_confirmation_required', 'The configured payment processor must confirm payment before the order can be marked paid.');
+    const reason = String(request.body?.reason || '').trim().slice(0, 240);
+    if (!/^[a-f0-9]{32}$/.test(orderId) || !reason) return sendError(response, 422, 'invalid_order_update', 'Provide an order ID and reason.');
+    const orderRef = db.collection('haloOrders').doc(orderId);
+    let verifiedPaymentReleased = false;
+    if (targetStatus === 'cancelled') {
+      const initialSnapshot = await orderRef.get();
+      if (!initialSnapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order not found.');
+      const initialOrder = { id: orderId, ...initialSnapshot.data() };
+      if (initialOrder.brand !== 'HALO') return sendError(response, 404, 'order_not_found', 'HALO order not found.');
+      if (initialOrder.status === 'pending_payment') {
+        if (initialOrder.paymentProvider === 'roth') {
+          const roth = rothIntegration();
+          if (!initialOrder.customerUid || !Number.isSafeInteger(initialOrder.totalPence)) throw new Error('HALO ROTH order identity is incomplete; reconcile it before cancellation.');
+          try {
+            const held = await roth.reserve({ externalId: initialOrder.customerUid, orderId, amountPence: initialOrder.totalPence });
+            verifyRothBusinessIdentity(held?.businessId, rothBusinessId.value(), { requireActual: true });
+            if (typeof held.reservationId !== 'string' || held.amountPence !== initialOrder.totalPence) throw new Error('ROTH reservation does not match the HALO order.');
+            if (initialOrder.rothReservationId && held.reservationId !== initialOrder.rothReservationId) throw new Error('ROTH reservation identity changed; reconcile before cancellation.');
+            if (held.status === 'active') {
+              const cancelled = await roth.cancel({ orderId, reservationId: held.reservationId });
+              const cancelJournalId = String(cancelled.journalId || cancelled.id || '');
+              const cancelReceipt = cancelJournalId ? await roth.receipt(cancelJournalId) : null;
+              if (!cancelReceipt || cancelReceipt.id !== cancelJournalId || cancelReceipt.type !== 'reservation_cancelled' ||
+                  cancelReceipt.amountPence !== initialOrder.totalPence || cancelReceipt.status !== 'posted') {
+                throw new Error('ROTH has not confirmed release of this HALO checkout reservation.');
+              }
+            } else if (!['cancelled', 'expired'].includes(held.status)) {
+              throw new Error('ROTH checkout reservation is not cancellable; refund a confirmed payment first.');
+            }
+            verifiedPaymentReleased = true;
+          } catch (error) {
+            if (initialOrder.rothReservationId || !['identity_not_linked', 'insufficient_balance'].includes(error.code)) throw error;
+            // No merchant-linked reservation exists for this pending order.
+            verifiedPaymentReleased = true;
+          }
+        } else {
+          if (!initialOrder.stripeSessionId || initialOrder.stripeMode !== 'test') {
+            return sendError(response, 409, 'checkout_session_unavailable', 'This order has no verified HALO staging Checkout Session to cancel.');
+          }
+          const stripe = stripeClient();
+          await assertRothcrossStripeAccount(stripe);
+          let session = await stripe.checkout.sessions.retrieve(initialOrder.stripeSessionId);
+          if (session.status === 'open') session = await stripe.checkout.sessions.expire(initialOrder.stripeSessionId);
+          validatePendingCheckoutCancellation(initialOrder, session, orderId);
+          verifiedPaymentReleased = true;
+        }
+      }
+    }
+    const result = await db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(orderRef);
+      if (!snapshot.exists) throw new Error('HALO order not found.');
+      const order = snapshot.data();
+      const status = nextOrderStatus(order.status, targetStatus);
+      let cancellationInventoryPatch = {};
+      if (status === 'cancelled') {
+        if (order.status === 'pending_payment') {
+          if (!verifiedPaymentReleased) throw new Error('The payment processor must confirm release of the unpaid HALO checkout before cancellation.');
+          cancellationInventoryPatch = await releaseReservedInventory(transaction, orderRef, { id: orderId, ...order }, 'admin_cancelled');
+        } else if (order.paymentStatus !== 'refunded') {
+          throw new Error('Refund the full payment through its original payment processor before cancelling a paid HALO order.');
+        }
+      }
+      if ((status === 'processing' || status === 'dispatched') && order.paymentStatus !== 'paid') throw new Error('This order requires payment review before fulfilment.');
+      if ((status === 'processing' || status === 'dispatched') && order.deliveryMethod === 'standard' && !order.shippingDetails) throw new Error('A verified delivery address is required before fulfilment.');
+      if (status === 'dispatched' && !/^https:\/\//.test(String(request.body?.trackingUrl || ''))) throw new Error('A secure tracking URL is required before dispatch.');
+      const patch = { ...cancellationInventoryPatch, status, updatedAt: FieldValue.serverTimestamp() };
+      if (status === 'cancelled' && order.status === 'pending_payment' && order.paymentStatus === 'pending') patch.paymentStatus = 'abandoned';
+      if (status === 'dispatched') patch.trackingUrl = String(request.body.trackingUrl).slice(0, 500);
+      if (status === 'delivered') patch.deliveredAt = FieldValue.serverTimestamp();
+      transaction.update(orderRef, patch);
+      const eventRef = orderRef.collection('events').doc();
+      transaction.create(eventRef, { type: 'status_changed', from: order.status, to: status, reason, actorUid: admin.uid, actorEmail: admin.email, at: FieldValue.serverTimestamp() });
+      return { orderId, status };
+    });
+    response.set('Cache-Control', 'no-store').status(200).json(result);
+  } catch (error) {
+    sendError(response, error instanceof AppCheckAccessError || error instanceof AdminAccessError ? 403 : 409, 'order_update_failed', error.message || 'Order could not be updated.');
+  }
+});
+
+exports.requestHaloRefund = onRequest({ region, invoker: 'public', maxInstances: 3, secrets: [stripeSecret] }, async (request, response) => {
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to request a refund.');
+  try {
+    const admin = await requireHaloAdmin(request);
+    const orderId = String(request.body?.orderId || '');
+    const amountPence = Number(request.body?.amountPence);
+    const reason = String(request.body?.reason || '').trim().slice(0, 240);
+    const requestKey = request.get('idempotency-key') || '';
+    if (!/^[a-f0-9]{32}$/.test(orderId) || !Number.isSafeInteger(amountPence) || amountPence < 1 || !reason || requestKey.length < 16 || requestKey.length > 128) {
+      return sendError(response, 422, 'invalid_refund', 'Provide an order, positive amount, reason and idempotency key.');
+    }
+    const orderSnapshot = await db.collection('haloOrders').doc(orderId).get();
+    if (!orderSnapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
+    const order = orderSnapshot.data();
+    if (order.brand !== 'HALO' || !order.paymentIntentId || !['paid', 'processing', 'dispatched', 'delivered'].includes(order.status)) return sendError(response, 409, 'refund_unavailable', 'Only paid HALO orders can be refunded.');
+    if (amountPence > order.totalPence - Number(order.refundedPence || 0)) return sendError(response, 422, 'refund_exceeds_remaining', 'Refund amount exceeds the remaining paid total.');
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    const refund = await stripe.refunds.create({
+      payment_intent: order.paymentIntentId,
+      amount: amountPence,
+      metadata: { store: 'halo', brand: 'HALO Skin UK', orderId, reason, requestedBy: admin.uid }
+    }, { idempotencyKey: stripeRefundIdempotencyKey(orderId, requestKey) });
+    response.set('Cache-Control', 'no-store').status(200).json({ refundId: refund.id, status: refund.status, amountPence: refund.amount, currency: refund.currency });
+  } catch (error) {
+    const denied = error instanceof AppCheckAccessError || error instanceof AdminAccessError;
+    sendError(response, denied ? 403 : 503, 'refund_request_failed', denied ? error.message : 'The HALO refund could not be requested. Check its status before retrying.');
+  }
+});
+
+exports.setHaloStockCount = onRequest({ region, invoker: 'public', maxInstances: 3 }, async (request, response) => {
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to record a HALO stock count.');
+  try {
+    const admin = await requireHaloAdmin(request);
+    const productId = String(request.body?.productId || '');
+    const physicalCount = request.body?.physicalCount;
+    const reason = String(request.body?.reason || '').trim().slice(0, 240);
+    const requestKey = request.get('idempotency-key') || '';
+    if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(productId) || typeof physicalCount !== 'number' ||
+        !Number.isSafeInteger(physicalCount) || physicalCount < 0 || reason.length < 3 ||
+        requestKey.length < 16 || requestKey.length > 128) {
+      return sendError(response, 422, 'invalid_stock_count', 'Provide a product, verified whole-unit count, reason and idempotency key.');
+    }
+    const productRef = db.collection('products').doc(productId);
+    const movementRef = db.collection('haloInventoryMovements').doc(`count_${hash(requestKey).slice(0, 32)}`);
+    const result = await db.runTransaction(async transaction => {
+      const [movementSnapshot, productSnapshot] = await Promise.all([
+        transaction.get(movementRef), transaction.get(productRef)
+      ]);
+      if (movementSnapshot.exists) return { ...movementSnapshot.data().result, duplicate: true };
+      if (!productSnapshot.exists) throw new Error('HALO product was not found.');
+      const product = productSnapshot.data();
+      const reservedQuantity = product.reservedQuantity ?? 0;
+      const adjustment = inventoryCountAdjustment(product.stockQuantity ?? null, reservedQuantity, physicalCount);
+      const recordedAt = FieldValue.serverTimestamp();
+      const responseData = {
+        productId, physicalCount: adjustment.physicalCount, availableQuantity: adjustment.availableQuantity,
+        reservedQuantity, previousPhysicalCount: adjustment.previousPhysicalCount, delta: adjustment.delta
+      };
+      transaction.update(productRef, {
+        stockQuantity: adjustment.availableQuantity, reservedQuantity,
+        inventoryCountedAt: recordedAt, inventoryCountedBy: admin.uid, inventoryUpdatedAt: recordedAt
+      });
+      transaction.create(movementRef, {
+        type: 'physical_stock_count', status: 'recorded', brand: 'HALO', productId,
+        ...responseData, reason, actorUid: admin.uid, actorEmail: admin.email,
+        createdAt: recordedAt, result: responseData
+      });
+      return responseData;
+    });
+    response.set('Cache-Control', 'no-store').status(200).json(result);
+  } catch (error) {
+    const denied = error instanceof AppCheckAccessError || error instanceof AdminAccessError;
+    sendError(response, denied ? 403 : 503, 'stock_count_failed',
+      denied ? error.message : 'The HALO stock count could not be saved. Check the product and reservation state before retrying.');
+  }
+});
+
+exports.getCheckoutStatus = onRequest({ region, invoker: 'public', maxInstances: 3, secrets: [stripeSecret] }, async (request, response) => {
+  if (!setCors(request, response)) return sendError(response, 403, 'origin_not_allowed', 'This HALO storefront origin is not allowed.');
+  if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Use POST to check a checkout.');
+  try {
+    await requireAppCheck(request);
+    const sessionId = String(request.body?.sessionId || '');
+    if (!/^cs_test_[A-Za-z0-9_]+$/.test(sessionId)) return sendError(response, 422, 'invalid_session', 'Stripe session reference is not valid.');
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.metadata?.store !== 'halo' || !session.metadata?.orderId) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
+    const snapshot = await db.collection('haloOrders').doc(session.metadata.orderId).get();
+    if (!snapshot.exists) return sendError(response, 404, 'order_not_found', 'HALO order was not found.');
+    const order = { id: session.metadata.orderId, ...snapshot.data() };
+    if (order.brand !== 'HALO' || order.stripeSessionId !== session.id || session.currency !== 'gbp' || session.amount_total !== order.totalPence) return sendError(response, 409, 'payment_mismatch', 'Stripe session does not match the HALO order.');
+    let currentOrder = order;
+    if (session.payment_status === 'paid') {
+      const eventId = `checkout_paid_status_${session.id}`;
+      const eventRef = db.collection('haloStripeEvents').doc(eventId);
+      const statusCheckEvent = { id: eventId, type: 'checkout.session.completed', livemode: false, data: { object: session } };
+      currentOrder = await db.runTransaction(async transaction => {
+        const orderRef = db.collection('haloOrders').doc(session.metadata.orderId);
+        const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(orderRef)]);
+        if (!orderSnapshot.exists) throw new Error('HALO order not found.');
+        const current = { id: orderRef.id, ...orderSnapshot.data() };
+        if (current.brand !== 'HALO' || current.stripeSessionId !== session.id) throw new Error('HALO order changed while payment was being reconciled.');
+        if (eventSnapshot.exists) return current;
+        const update = stripeEventOrderUpdate(current, statusCheckEvent);
+        if (current.status === 'cancelled' && update.eventStatus === 'duplicate_payment_ignored') {
+          throw new Error('Stripe reports payment for a cancelled HALO order; manual financial review is required.');
+        }
+        const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.status === 'paid'
+          ? await commitReservedInventory(transaction, orderRef, current)
+          : {};
+        Object.assign(patch, inventoryPatch);
+        if (Object.keys(patch).length) transaction.update(orderRef, {
+          ...patch, updatedAt: FieldValue.serverTimestamp(), ...(patch.status === 'paid' ? { paidAt: FieldValue.serverTimestamp() } : {})
+        });
+        transaction.create(eventRef, {
+          type: 'checkout.session.completed', orderId: orderRef.id, status: eventStatus,
+          source: 'checkout_status_check', createdAt: FieldValue.serverTimestamp()
+        });
+        return { ...current, ...patch };
+      });
+    } else if (session.status === 'expired' && ['pending', 'failed'].includes(order.paymentStatus || 'pending')) {
+      const eventId = `checkout_expired_${session.id}`;
+      const eventRef = db.collection('haloStripeEvents').doc(eventId);
+      const statusCheckEvent = { id: eventId, type: 'checkout.session.expired', livemode: false, data: { object: session } };
+      currentOrder = await db.runTransaction(async transaction => {
+        const orderRef = db.collection('haloOrders').doc(session.metadata.orderId);
+        const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(orderRef)]);
+        if (!orderSnapshot.exists) throw new Error('HALO order not found.');
+        const current = { id: orderRef.id, ...orderSnapshot.data() };
+        if (current.brand !== 'HALO' || current.stripeSessionId !== session.id) throw new Error('HALO order changed while expiry was being reconciled.');
+        if (eventSnapshot.exists) return current;
+        const update = stripeEventOrderUpdate(current, statusCheckEvent);
+        const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.paymentStatus === 'abandoned'
+          ? await releaseReservedInventory(transaction, orderRef, current, 'checkout_session_expired')
+          : {};
+        Object.assign(patch, inventoryPatch);
+        if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
+        transaction.create(eventRef, {
+          type: 'checkout.session.expired', orderId: orderRef.id, status: eventStatus,
+          source: 'checkout_status_check', createdAt: FieldValue.serverTimestamp()
+        });
+        return { ...current, ...patch };
+      });
+    }
+    const paymentState = currentOrder.paymentStatus || 'pending';
+    response.set('Cache-Control', 'no-store').status(200).json({
+      paymentStatus: paymentState,
+      orderStatus: currentOrder.status,
+      paymentState
+    });
+  } catch (_) { sendError(response, 503, 'status_unavailable', 'Payment status is still being confirmed. Try again shortly.'); }
+});
+
+exports.stripeWebhook = onRequest({ region, invoker: 'public', maxInstances: 3, secrets: [stripeSecret, stripeWebhookSecret] }, async (request, response) => {
+  if (request.method !== 'POST') return sendError(response, 405, 'method_not_allowed', 'Stripe webhooks require POST.');
+  let event;
+  try {
+    const signature = request.get('stripe-signature');
+    if (!signature) return sendError(response, 400, 'signature_missing', 'Stripe signature is required.');
+    const stripe = stripeClient();
+    await assertRothcrossStripeAccount(stripe);
+    event = stripe.webhooks.constructEvent(request.rawBody, signature, stripeWebhookSecret.value());
+  } catch (_) { return sendError(response, 400, 'signature_invalid', 'Stripe webhook signature verification failed.'); }
+  if (event.livemode !== false) return sendError(response, 403, 'live_payment_rejected', 'This HALO endpoint accepts test-mode Stripe events only.');
+  const eventRef = db.collection('haloStripeEvents').doc(event.id);
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      if (session.payment_status !== 'paid') return response.status(200).json({ received: true, ignored: 'not_paid' });
+      const orderId = session.metadata?.orderId;
+      if (!isHaloStripeMetadata(session.metadata) || !orderId) {
+        await eventRef.create({ type: event.type, status: 'ignored_wrong_store', createdAt: FieldValue.serverTimestamp() }).catch(error => { if (error.code !== 6) throw error; });
+        return response.status(200).json({ received: true, ignored: 'wrong_store' });
+      }
+      const orderRef = db.collection('haloOrders').doc(orderId);
+      await db.runTransaction(async transaction => {
+        const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(orderRef)]);
+        if (eventSnapshot.exists) return;
+        if (!orderSnapshot.exists) throw new Error('HALO order not found.');
+        const order = orderSnapshot.data();
+        const update = stripeEventOrderUpdate({ id: orderId, ...order }, event);
+        const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.status === 'paid'
+          ? await commitReservedInventory(transaction, orderRef, order)
+          : {};
+        Object.assign(patch, inventoryPatch);
+        if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp(), ...(patch.status === 'paid' ? { paidAt: FieldValue.serverTimestamp() } : {}) });
+        transaction.create(eventRef, { type: event.type, orderId, status: eventStatus, createdAt: FieldValue.serverTimestamp() });
+      });
+    } else if (event.type === 'checkout.session.expired' || event.type === 'payment_intent.payment_failed') {
+      const object = event.data.object;
+      const orderId = object.metadata?.orderId || '';
+      if (!isHaloStripeMetadata(object.metadata) || !orderId) {
+        await eventRef.create({ type: event.type, status: 'ignored_wrong_store', createdAt: FieldValue.serverTimestamp() }).catch(error => { if (error.code !== 6) throw error; });
+        return response.status(200).json({ received: true, ignored: 'wrong_store' });
+      }
+      const orderRef = db.collection('haloOrders').doc(orderId);
+      await db.runTransaction(async transaction => {
+        const [eventSnapshot, orderSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(orderRef)]);
+        if (eventSnapshot.exists) return;
+        if (!orderSnapshot.exists) throw new Error('HALO order not found.');
+        const order = { id: orderId, ...orderSnapshot.data() };
+        const update = stripeEventOrderUpdate(order, event);
+        const { eventStatus, ...patch } = update;
+        const inventoryPatch = update.paymentStatus === 'abandoned'
+          ? await releaseReservedInventory(transaction, orderRef, order, 'checkout_session_expired')
+          : {};
+        Object.assign(patch, inventoryPatch);
+        if (Object.keys(patch).length) transaction.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
+        transaction.create(eventRef, { type: event.type, orderId, status: eventStatus, createdAt: FieldValue.serverTimestamp() });
+      });
+    } else if (event.type === 'charge.succeeded') {
+      const charge = event.data.object;
+      const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+      if (!paymentIntentId) return response.status(200).json({ received: true, ignored: 'no_payment_intent' });
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const orderId = paymentIntent.metadata?.orderId || '';
+      if (!isHaloStripeMetadata(paymentIntent.metadata) || !orderId || !/^[a-f0-9]{32}$/.test(orderId)) {
+        return response.status(200).json({ received: true, ignored: 'wrong_store' });
+      }
+      const orderRef = db.collection('haloOrders').doc(orderId);
+      const orderSnapshot = await orderRef.get();
+      if (!orderSnapshot.exists || orderSnapshot.data().brand !== 'HALO' ||
+          (orderSnapshot.data().paymentIntentId && orderSnapshot.data().paymentIntentId !== paymentIntentId)) {
+        throw new Error('HALO charge does not match a recorded HALO order.');
+      }
+      validateHaloCharge({ charge, order: { id: orderId, ...orderSnapshot.data() }, paymentIntentId });
+      const [balanceTransaction, stripeAccount] = await Promise.all([
+        resolveBalanceTransaction(stripe, charge), stripe.accounts.retrieve()
+      ]);
+      const stripeAccountId = stripeAccount.id;
+      const ledgerEntry = balanceTransaction
+        ? haloFinancialEntry({ balanceTransaction, stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId, expectedGrossPence: charge.amount_captured })
+        : pendingHaloFinancialEntry({ stripeAccountId, orderId, sourceType: 'charge', sourceId: charge.id, paymentIntentId, grossPence: charge.amount });
+      const ledgerRef = db.collection('haloFinancialEntries').doc(`charge_${charge.id}`);
+      await db.runTransaction(async transaction => {
+        const [eventSnapshot, ledgerSnapshot] = await Promise.all([transaction.get(eventRef), transaction.get(ledgerRef)]);
+        if (!eventSnapshot.exists) transaction.create(eventRef, { type: event.type, orderId, status: 'processed', createdAt: FieldValue.serverTimestamp() });
+        if (!ledgerSnapshot.exists || (ledgerSnapshot.data().reconciliationStatus !== 'reconciled' && ledgerEntry.reconciliationStatus === 'reconciled')) {
+          transaction.set(ledgerRef, { ...ledgerEntry, recordedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        }
+      });
+    } else if (event.type === 'charge.refunded') {
+      const charge = event.data.object;
+      const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : '';
+      if (!paymentIntentId) return response.status(200).json({ received: true, ignored: 'no_payment_intent' });
+      // Rothcross uses one Stripe account across its brands. Charge metadata
+      // is not guaranteed to contain PaymentIntent metadata, so use the
+      // authoritative PaymentIntent to identify HALO's own order.
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      const orderId = haloRefundOrderId(paymentIntentId, paymentIntent);
+      if (!orderId) {
+        return response.status(200).json({ received: true, ignored: 'wrong_store' });
+      }
+      const orderRef = db.collection('haloOrders').doc(orderId);
+      const account = await stripe.accounts.retrieve();
+      const refunds = await stripe.refunds.list({ charge: charge.id, limit: 100 });
+      if (refunds.has_more) throw new Error('HALO refund ledger exceeds the safe event page; reconcile additional Stripe refunds before processing.');
+      const financialEntries = [];
+      for (const refund of refunds.data) {
+        const balanceTransaction = await resolveBalanceTransaction(stripe, refund);
+        financialEntries.push({
+          ref: db.collection('haloFinancialEntries').doc(`refund_${refund.id}`),
+          data: balanceTransaction
+            ? haloFinancialEntry({ balanceTransaction, stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId, expectedGrossPence: -refund.amount })
+            : pendingHaloFinancialEntry({ stripeAccountId: account.id, orderId, sourceType: 'refund', sourceId: refund.id, paymentIntentId, grossPence: -refund.amount })
+        });
+      }
+      await db.runTransaction(async transaction => {
+        const [eventSnapshot, orderSnapshot, ...ledgerSnapshots] = await Promise.all([
+          transaction.get(eventRef), transaction.get(orderRef), ...financialEntries.map(entry => transaction.get(entry.ref))
+        ]);
+        if (eventSnapshot.exists) {
+          financialEntries.forEach((entry, index) => {
+            const existing = ledgerSnapshots[index];
+            if (!existing.exists || (existing.data().reconciliationStatus !== 'reconciled' && entry.data.reconciliationStatus === 'reconciled')) {
+              transaction.set(entry.ref, { ...entry.data, recordedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+            }
+          });
+          return;
+        }
+        if (!orderSnapshot.exists) throw new Error('HALO order has not been recorded yet.');
+        const order = orderSnapshot.data();
+        if (order.brand !== 'HALO') {
+          transaction.create(eventRef, { type: event.type, status: 'ignored_wrong_store', createdAt: FieldValue.serverTimestamp() });
+          return;
+        }
+        // Stripe can deliver the refund before checkout.session.completed.
+        // Leave the event unrecorded so Stripe can retry once the order is paid.
+        if (!order?.paymentIntentId) throw new Error('HALO payment has not been recorded yet.');
+        if (order.paymentIntentId !== paymentIntentId) {
+          transaction.create(eventRef, {
+            type: event.type, status: 'payment_mismatch', orderId,
+            paymentIntentId, createdAt: FieldValue.serverTimestamp()
+          });
+          return;
+        }
+        const { eventStatus, ...patch } = stripeRefundOrderUpdate(order, charge);
+        if (eventStatus === 'processed') {
+          transaction.update(orderRef, {
+            ...patch, refundedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+          });
+        }
+        financialEntries.forEach((entry, index) => {
+          const existing = ledgerSnapshots[index];
+          if (!existing.exists || (existing.data().reconciliationStatus !== 'reconciled' && entry.data.reconciliationStatus === 'reconciled')) {
+            transaction.set(entry.ref, { ...entry.data, recordedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          }
+        });
+        if (!eventSnapshot.exists) transaction.create(eventRef, {
+          type: event.type, status: eventStatus, orderId,
+          paymentIntentId, createdAt: FieldValue.serverTimestamp()
+        });
+      });
+    } else {
+      await eventRef.create({ type: event.type, status: 'ignored', createdAt: FieldValue.serverTimestamp() }).catch(error => { if (error.code !== 6) throw error; });
+    }
+    response.status(200).json({ received: true });
+  } catch (_) { sendError(response, 500, 'webhook_processing_failed', 'Payment event could not be recorded; Stripe should retry.'); }
+});

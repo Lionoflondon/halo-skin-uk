@@ -1,8 +1,15 @@
 /** Halo-only delivery configuration. Never place Circum secrets in this file. */
 window.HALO_DELIVERY_CONFIG = {
   serviceAreaEndpoint: '',
-  paymentSuccessEndpoint: '',
-  adminOrdersEndpoint: '',
+  checkoutSessionEndpoint: '/api/createCheckoutSession',
+  rothCheckoutEndpoint: '/api/createRothOrder',
+  checkoutStatusEndpoint: '/api/getCheckoutStatus',
+  customerOrdersEndpoint: '/api/customerOrders',
+  rothLinkStartEndpoint: '/api/rothLinkStart',
+  rothWalletEndpoint: '/api/rothWallet',
+  adminOrdersEndpoint: '/api/adminOrders',
+  stockCountEndpoint: '/api/setHaloStockCount',
+  circumCheckoutEnabled: false,
   postcodeLookupEndpoint: 'https://api.postcodes.io/postcodes/',
   previewSupportedRegions: ['London'],
 

@@ -1,1 +1,30 @@
 .checkout-modal{width:min(1080px,96vw);height:min(760px,94vh);padding:0;border:0;background:#fbf8f2;color:#20231e}.checkout-modal::backdrop{background:#151611cc}.checkout-shell{display:grid;grid-template-columns:1.25fr .75fr;min-height:100%}.checkout-main{padding:38px 7vw 40px}.checkout-brand{display:flex;justify-content:space-between;align-items:center}.checkout-brand button{border:0;background:none;font-size:28px;cursor:pointer}.checkout-steps{font-size:10px;color:#777;margin:28px 0}.checkout-main h3,.checkout-summary h3{font-family:Italiana;font-size:22px;font-weight:400;margin:25px 0 12px}.checkout-main input,.checkout-main select{width:100%;padding:13px;border:1px solid #20231e33;background:#fff;font-size:12px}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.field-grid .wide{grid-column:1/-1}.delivery-option{display:flex;align-items:center;gap:12px;border:1px solid #20231e;padding:13px;margin-top:14px;font-size:11px}.delivery-option input{width:auto}.delivery-option span{flex:1}.delivery-option small{color:#777}.pay-button{width:100%;margin-top:24px}.checkout-note{text-align:center;color:#777;font-size:9px}.checkout-summary{background:#f0ebe2;padding:55px 35px}.checkout-summary-item{display:grid;grid-template-columns:55px 1fr auto;align-items:center;gap:12px;margin:15px 0;font-size:11px}.checkout-summary-item img{width:55px;height:65px;object-fit:cover}.summary-line{display:flex;justify-content:space-between;padding:12px 0;border-top:1px solid #20231e22;font-size:11px}.summary-line.total{font-size:16px;margin-top:10px}@media(max-width:720px){.checkout-modal{width:100vw;height:100vh;max-height:none}.checkout-shell{grid-template-columns:1fr}.checkout-main{padding:25px}.checkout-summary{padding:25px}.field-grid{grid-template-columns:1fr}.field-grid>*{grid-column:1/-1}}
+
+.account-modal{width:min(560px,calc(100vw - 32px));max-height:min(760px,92vh);padding:0;border:0;background:#fbf8f2;color:#20231e;box-shadow:0 24px 90px #10150f33}
+.account-modal::backdrop{background:#151611b8}
+.account-modal [hidden]{display:none!important}
+.account-shell{position:relative;padding:48px clamp(24px,7vw,58px);overflow:auto;max-height:min(760px,92vh)}
+.account-close{position:absolute;right:22px;top:18px;border:0;background:none;font-size:30px;line-height:1;cursor:pointer;color:#20231e}
+.account-shell h2{font-family:Italiana;font-weight:400;font-size:38px;margin:4px 0 8px}
+.account-intro,.account-shell>div p{font-size:12px;line-height:1.65;color:#62645e}
+.account-mode{display:flex;border-bottom:1px solid #20231e33;margin:28px 0 20px}
+.account-mode button{flex:1;border:0;border-bottom:2px solid transparent;background:none;padding:12px 8px;color:#74766f;cursor:pointer;font-size:11px}
+.account-mode button[aria-pressed="true"]{color:#20231e;border-color:#20231e}
+#customer-auth-form{display:grid;gap:9px}
+#customer-auth-form label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-top:8px}
+#customer-auth-form input{box-sizing:border-box;width:100%;padding:13px;border:1px solid #20231e33;background:#fff;font:inherit;font-size:13px}
+#customer-auth-form .account-password-note{font-size:10px;line-height:1.5;color:#686a63}
+#customer-auth-form .button{width:100%;margin-top:12px}
+.account-link{border:0;background:none;padding:10px 0;color:#354a39;text-decoration:underline;cursor:pointer;font:inherit;font-size:11px}
+.account-message{min-height:20px;color:#555;font-size:11px;line-height:1.5}
+.account-email{font-weight:600;color:#20231e!important;overflow-wrap:anywhere}
+.account-orders-heading,.customer-order-heading,.customer-order-meta{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.account-orders-heading{border-bottom:1px solid #20231e33;margin-top:24px}
+.account-orders-heading h3{font-family:Italiana;font-weight:400;font-size:24px;margin:14px 0}
+.customer-order{padding:16px 0;border-bottom:1px solid #20231e22;font-size:11px;line-height:1.6}
+.customer-order-heading{font-size:12px}
+.customer-order p{margin:8px 0}
+.customer-order-meta{justify-content:flex-start;flex-wrap:wrap;color:#686a63;font-size:10px;text-transform:capitalize}
+.customer-order a{color:#354a39}
+.account-empty{padding:14px 0}
+@media(max-width:720px){.account-shell{padding:42px 24px 30px}.account-shell h2{font-size:32px}.account-mode{margin-top:20px}}

@@ -1,8 +1,12 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import { getRefundRequestKey } from './admin-refund-idempotency.mjs';
 import {
   browserLocalPersistence,
   EmailAuthProvider,
   getAuth,
+  getMultiFactorResolver,
+  multiFactor,
+  TotpMultiFactorGenerator,
   GoogleAuthProvider,
   linkWithCredential,
   onAuthStateChanged,
@@ -29,6 +33,11 @@ const allowedAdminEmails = window.HALO_ADMIN_EMAILS || [];
 const deliveryConfig = window.HALO_DELIVERY_CONFIG || {};
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
+const appCheckApi = await import('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-check.js');
+const appCheckSiteKey = firebaseConfig?.appCheckSiteKey;
+const appCheck = appCheckSiteKey ? appCheckApi.initializeAppCheck(firebaseApp, {
+  provider: new appCheckApi.ReCaptchaV3Provider(appCheckSiteKey), isTokenAutoRefreshEnabled: true
+}) : null;
 await setPersistence(auth, browserLocalPersistence);
 const database = getFirestore(firebaseApp);
 const provider = new GoogleAuthProvider();
@@ -43,6 +52,19 @@ const money = value => new Intl.NumberFormat('en-GB', { style: 'currency', curre
 const slugify = value => String(value || '').toLowerCase().trim()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+if (firebaseConfig?.rothEnabled !== true) {
+  document.querySelector('[data-admin-tab="rewards"]')?.setAttribute('hidden', '');
+  document.querySelector('[data-admin-panel="rewards"]')?.setAttribute('hidden', '');
+}
+
+async function getProtectedRequestHeaders(user = auth.currentUser, extra = {}) {
+  if (!appCheck) throw new Error('Secure request protection is not configured yet.');
+  const token = await user?.getIdToken(true);
+  if (!token) throw new Error('Sign in again to continue.');
+  const appCheckToken = (await appCheckApi.getToken(appCheck)).token;
+  return { Authorization: `Bearer ${token}`, 'X-Firebase-AppCheck': appCheckToken, ...extra };
+}
+
 const starterProducts = [
   { id: 'lip-peptide-treatment', variantId: 'lip-peptide-treatment-default', slug: 'lip-peptide-treatment', title: 'Lip Peptide Treatment', subtitle: 'Softening clear treatment', type: 'Treatment', price: 18, badge: 'Bestseller', number: '01', image: 'assets/halo-pink-botanical.jpg', alt: 'Halo clear peptide lip treatment among flowers and river stones', available: true, published: true, sortOrder: 1 },
   { id: 'peptide-lip-tint-pink-veil', variantId: 'peptide-lip-tint-pink-veil-default', slug: 'peptide-lip-tint-pink-veil', title: 'Peptide Lip Tint', subtitle: 'Pink veil', type: 'Tint', price: 18, badge: 'New', number: '02', image: 'assets/halo-lifestyle.jpg', alt: 'Halo pink peptide lip tint', available: true, published: true, sortOrder: 2 },
@@ -53,6 +75,7 @@ const starterProducts = [
 let catalogue = [];
 let unsubscribeProducts = null;
 let editingImage = '';
+let financialReconciliationCursor = null;
 
 function message(element, text, state = '') {
   element.textContent = text;
@@ -64,8 +87,17 @@ function isAllowedAdmin(user) {
 }
 
 function switchTab(name) {
-  $$('.admin-tab').forEach(button => button.classList.toggle('active', button.dataset.adminTab === name));
-  $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.adminPanel === name));
+  $$('.admin-tab').forEach(button => {
+    const selected = button.dataset.adminTab === name;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  $$('[data-admin-panel]').forEach(panel => {
+    const selected = panel.dataset.adminPanel === name;
+    panel.classList.toggle('active', selected);
+    panel.hidden = !selected;
+  });
 }
 
 function previewImage(source) {
@@ -129,10 +161,12 @@ function renderCatalogue() {
         <div class="status-row">
           <span class="pill ${product.published ? 'live' : ''}">${product.published ? 'Published' : 'Draft'}</span>
           <span class="pill ${product.available === false ? 'sold' : ''}">${product.available === false ? 'Sold out' : 'Available'}</span>
+          <span class="pill">${Number.isSafeInteger(product.stockQuantity) ? `${product.stockQuantity} available · ${Number(product.reservedQuantity) || 0} reserved` : 'Physical stock count required'}</span>
         </div>
       </div>
       <div class="product-actions">
         <button type="button" data-edit-product="${escapeHtml(product.id)}">Edit</button>
+        <button type="button" data-count-stock="${escapeHtml(product.id)}">Count stock</button>
         <button class="delete-product" type="button" data-delete-product="${escapeHtml(product.id)}">Delete</button>
       </div>
     </article>`).join('');
@@ -195,7 +229,11 @@ async function saveProduct(event) {
       published: $('#product-published').checked,
       updatedAt: serverTimestamp()
     };
-    if (!existingId) product.createdAt = serverTimestamp();
+    if (!existingId) {
+      product.stockQuantity = null;
+      product.reservedQuantity = 0;
+      product.createdAt = serverTimestamp();
+    }
     await setDoc(doc(database, 'products', id), product, { merge: true });
     message(productMessage, existingId ? 'Product updated.' : 'Product added to Halo.', 'success');
     setTimeout(resetProductForm, 650);
@@ -214,8 +252,11 @@ async function importStarterProducts() {
     const batch = writeBatch(database);
     starterProducts.forEach(product => {
       const { id, ...data } = product;
+      const inventoryDefaults = catalogue.some(existing => existing.id === id)
+        ? {} : { stockQuantity: null, reservedQuantity: 0 };
       batch.set(doc(database, 'products', id), {
         ...data,
+        ...inventoryDefaults,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       }, { merge: true });
@@ -252,22 +293,102 @@ function watchProducts() {
   });
 }
 
+function orderActions(order) {
+  const actions = [];
+  const paid = order.paymentStatus === 'paid' || order.paymentStatus === 'partially_refunded';
+  if (order.status === 'paid' && order.paymentStatus === 'paid') actions.push('processing');
+  if (order.status === 'processing' && paid) actions.push('dispatched');
+  if (order.status === 'dispatched') actions.push('delivered');
+  if (['abandoned', 'refunded'].includes(order.paymentStatus) && ['pending_payment', 'paid', 'processing'].includes(order.status)) actions.push('cancelled');
+  return `${actions.length ? `<button type="button" data-order-status="${escapeHtml(order.id)}">Update status</button>` : ''}${paid && !['cancelled', 'pending_payment'].includes(order.status) ? `<button type="button" data-order-refund="${escapeHtml(order.id)}" data-payment-provider="${escapeHtml(order.paymentProvider || 'stripe')}" data-refunded-pence="${Number(order.refundedPence) || 0}">Refund</button>` : ''}`;
+}
+
+function renderOrderHistory(history = []) {
+  if (!history.length) return '';
+  const rows = history.map(item => {
+    const transition = item.from && item.to ? `${item.from} → ${item.to}` : item.type || 'Order event';
+    const actor = item.actorEmail || 'Stripe/system';
+    return `<p>${escapeHtml(transition)}<br>${escapeHtml(item.reason || '')}<br><small>${escapeHtml(actor)} · ${escapeHtml(item.at || 'time unavailable')}</small></p>`;
+  }).join('');
+  return `<details><summary>Order history</summary>${rows}</details>`;
+}
+
+function renderShippingDetails(details) {
+  if (!details) return '';
+  const lines = [details.name, details.line1, details.line2, details.city, details.region, details.postcode, details.country];
+  return `<details><summary>Delivery address</summary>${lines.filter(Boolean).map(escapeHtml).join('<br>')}</details>`;
+}
+
+async function loadFinancialReport() {
+  const notice = $('#finance-notice');
+  notice.textContent = 'Loading HALO-only transactions from the shared Rothcross Stripe account…';
+  try {
+    const user = auth.currentUser;
+    const headers = await getProtectedRequestHeaders(user);
+    const response = await fetch('/api/adminFinancialReport', { headers, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+    if (auth.currentUser !== user) return;
+    $('#finance-account').textContent = `Rothcross Stripe account ${result.stripeAccountId} · HALO only · GBP`;
+    $('#finance-totals').innerHTML = [
+      ['Gross', result.totals.grossPence], ['Processor fees', result.totals.feePence], ['Net', result.totals.netPence]
+    ].map(([label, value]) => `<span class="pill">${label}: ${money(Number(value) / 100)}</span>`).join('');
+    const entries = result.entries || [];
+    $('#finance-entries').innerHTML = entries.length
+      ? entries.map(entry => `<tr><td>${escapeHtml(entry.sourceType)} · ${escapeHtml(entry.sourceId)}</td><td>${escapeHtml(entry.orderId)}</td><td>${money(Number(entry.grossPence) / 100)}</td><td>${entry.feePence === null ? '—' : money(Number(entry.feePence) / 100)}</td><td>${entry.netPence === null ? '—' : money(Number(entry.netPence) / 100)}</td><td>${escapeHtml(entry.reconciliationStatus)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">No HALO Stripe transactions found.</td></tr>';
+    $('#reconcile-finance').hidden = Number(result.pendingCount) === 0 && result.complete === true;
+    notice.textContent = `${result.reconciledCount} reconciled entries · ${result.pendingCount} pending balance transactions. ${result.complete ? 'Totals include all scanned HALO entries.' : `Only the first ${Number(result.scannedCount) || 0} ledger records were scanned; totals are incomplete.`} Reconciled totals exclude pending entries.`;
+  } catch (error) {
+    notice.textContent = error.message || 'HALO financial reconciliation could not be loaded.';
+  }
+}
+
+async function loadRothSettlements() {
+  const notice = $('#roth-settlement-notice');
+  notice.textContent = 'Loading HALO merchant settlements from ROTH…';
+  try {
+    const user = auth.currentUser;
+    const headers = await getProtectedRequestHeaders(user);
+    const response = await fetch('/api/rothSettlements', { headers, cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+    if (auth.currentUser !== user) return;
+    const entries = result.items || [];
+    $('#roth-settlement-rows').innerHTML = entries.length ? entries.map(item => `<tr>
+      <td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.issuingEntityId || item.businessId)}</td>
+      <td>${escapeHtml(item.funding)}</td><td>${item.amountPence === null ? '—' : money(Number(item.amountPence) / 100)}</td>
+      <td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.reservationId)}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty">No HALO ROTH settlement entries were returned.</td></tr>';
+    const counterparties = Object.entries(result.netByCounterparty || {}).map(([name, amount]) => `${name}: ${money(Number(amount) / 100)}`);
+    notice.textContent = counterparties.length ? `ROTH net by counterparty: ${counterparties.join(' · ')}` : 'No unsettled HALO counterparties were reported by ROTH.';
+  } catch (error) {
+    notice.textContent = error.message || 'ROTH settlement activity could not be loaded.';
+  }
+}
+
 async function loadOrders() {
   const tbody = $('#orders');
   const notice = $('#admin-notice');
   if (!deliveryConfig.adminOrdersEndpoint) return;
   notice.textContent = 'Loading Halo delivery data…';
   try {
-    const response = await fetch(deliveryConfig.adminOrdersEndpoint, { credentials: 'include' });
+    const user = auth.currentUser;
+    const headers = await getProtectedRequestHeaders(user);
+    const response = await fetch(deliveryConfig.adminOrdersEndpoint, { headers, cache: 'no-store' });
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const { orders = [] } = await response.json();
+    if (auth.currentUser !== user) return;
     tbody.innerHTML = orders.length ? orders.map(order => `<tr>
-      <td>${escapeHtml(order.orderNumber || order.id)}</td>
-      <td>${escapeHtml(order.customerName || order.customerEmail)}</td>
-      <td>${order.deliveryMethod === 'circum' ? '⚡ Circum Same Day' : '📦 Standard Delivery'}</td>
-      <td>${escapeHtml(order.circumDeliveryId || '—')}</td>
-      <td>${order.deliveryStatus ? `<span class="status">${escapeHtml(order.deliveryStatus)}</span>` : 'Halo fulfilment'}</td>
-      <td>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener">Track ↗</a>` : '—'}</td>
+      <td>${escapeHtml(order.id)}</td>
+      <td>${(order.items || []).map(item => `${escapeHtml(item.title)} × ${Number(item.quantity) || 0}`).join('<br>')}</td>
+      <td>${money(Number(order.totalPence) / 100)}${order.refundedPence ? `<br><small>${money(Number(order.refundedPence) / 100)} refunded</small>` : ''}</td>
+      <td><span class="status">${escapeHtml(order.status || 'pending')}</span></td>
+      <td>${escapeHtml(order.paymentStatus || 'pending')}</td>
+      <td>${order.trackingUrl ? `<a href="${escapeHtml(order.trackingUrl)}" target="_blank" rel="noopener">Track ↗</a><br>` : ''}
+        ${renderShippingDetails(order.shippingDetails)}
+        ${renderOrderHistory(order.statusHistory)}
+        ${orderActions(order)}</td>
     </tr>`).join('') : '<tr><td colspan="6" class="empty">No orders found.</td></tr>';
     notice.textContent = `${orders.length} Halo order${orders.length === 1 ? '' : 's'} loaded.`;
   } catch (_) {
@@ -286,9 +407,11 @@ onAuthStateChanged(auth, async user => {
     message($('#login-message'), '');
     watchProducts();
     loadOrders();
+    loadFinancialReport();
     return;
   }
   unsubscribeProducts?.();
+  $('#orders').replaceChildren();
   if (user) {
     message($('#login-message'), 'This Google account is not authorised for Halo Admin.', 'error');
     await signOut(auth);
@@ -346,7 +469,7 @@ $('#google-sign-in').addEventListener('click', async () => {
   button.disabled = true;
   message($('#login-message'), 'Opening secure Google sign-in…');
   try {
-    await signInWithPopup(auth, provider);
+    await completeAdminSignIn(() => signInWithPopup(auth, provider));
   } catch (error) {
     const needsSetup = ['auth/operation-not-allowed', 'auth/configuration-not-found'].includes(error.code);
     message(
@@ -369,13 +492,50 @@ $('#email-sign-in-form').addEventListener('submit', async event => {
   button.disabled = true;
   message($('#login-message'), 'Signing in securely…');
   try {
-    await signInWithEmailAndPassword(auth, email, password);
+    await completeAdminSignIn(() => signInWithEmailAndPassword(auth, email, password));
     $('#admin-password').value = '';
   } catch (error) {
     const friendlyMessage = error.code === 'auth/too-many-requests'
       ? 'Too many attempts. Wait a moment or reset your password.'
       : 'The email or password was not recognised.';
     message($('#login-message'), friendlyMessage, 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function completeAdminSignIn(signIn) {
+  try {
+    return await signIn();
+  } catch (error) {
+    if (error.code !== 'auth/multi-factor-auth-required') throw error;
+    const resolver = getMultiFactorResolver(auth, error);
+    const hint = resolver.hints.find(factor => factor.factorId === TotpMultiFactorGenerator.FACTOR_ID);
+    if (!hint) throw new Error('No supported authenticator is enrolled.');
+    const code = window.prompt('Enter the six-digit code from your authenticator app.')?.trim();
+    if (!/^\d{6}$/.test(code || '')) throw new Error('Enter a valid authenticator code.');
+    return resolver.resolveSignIn(TotpMultiFactorGenerator.assertionForSignIn(hint.uid, code));
+  }
+}
+
+$('#enrol-authenticator').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  const feedback = $('#authenticator-message');
+  const user = auth.currentUser;
+  if (!isAllowedAdmin(user)) return;
+  button.disabled = true;
+  try {
+    const session = await multiFactor(user).getSession();
+    const secret = await TotpMultiFactorGenerator.generateSecret(session);
+    const code = window.prompt(
+      'Add a time-based account to your authenticator using this setup key, then enter its six-digit code: ' + secret.secretKey
+    )?.trim();
+    if (!/^\d{6}$/.test(code || '')) throw new Error('Setup cancelled or invalid code.');
+    await multiFactor(user).enroll(TotpMultiFactorGenerator.assertionForEnrollment(secret, code), 'HALO admin');
+    await signOut(auth);
+    message($('#login-message'), 'Authenticator enrolled. Sign in again using your code.', 'success');
+  } catch (_) {
+    message(feedback, 'Authenticator setup did not finish. Sign in again and check that staging supports MFA.', 'error');
   } finally {
     button.disabled = false;
   }
@@ -405,6 +565,103 @@ $('#product-form').addEventListener('submit', saveProduct);
 $('#reset-product').addEventListener('click', resetProductForm);
 $('#import-products').addEventListener('click', importStarterProducts);
 $('#refresh').addEventListener('click', loadOrders);
+$('#refresh-finance').addEventListener('click', () => {
+  financialReconciliationCursor = null;
+  loadFinancialReport();
+});
+$('#reconcile-finance').addEventListener('click', async () => {
+  const button = $('#reconcile-finance');
+  const notice = $('#finance-notice');
+  const user = auth.currentUser;
+  if (!user) {
+    notice.textContent = 'Sign in again to reconcile HALO financial entries.';
+    return;
+  }
+  button.disabled = true;
+  notice.textContent = 'Checking pending HALO Stripe balance transactions…';
+  try {
+    const headers = await getProtectedRequestHeaders(user, { 'Content-Type': 'application/json' });
+    const response = await fetch('/api/adminReconcilePendingFinancialEntries', {
+      method: 'POST', headers,
+      body: JSON.stringify({ limit: 10, ...(financialReconciliationCursor ? { cursor: financialReconciliationCursor } : {}) }),
+      cache: 'no-store'
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `Request failed (${response.status})`);
+    if (auth.currentUser !== user) return;
+    financialReconciliationCursor = result.nextCursor || null;
+    const outcome = `${result.reconciledCount} updated; ${result.unresolvedCount} still waiting for Stripe; ${result.deferredCount} could not be reconciled.`;
+    await loadFinancialReport();
+    if (result.hasMore) notice.textContent += ` More pending entries remain; run Resolve pending again. ${outcome}`;
+    else notice.textContent += ` ${outcome}`;
+  } catch (error) {
+    notice.textContent = error.message || 'Pending HALO financial entries could not be reconciled.';
+  } finally {
+    button.disabled = false;
+  }
+});
+$('#refresh-roth-settlements').addEventListener('click', loadRothSettlements);
+$('#roth-reward-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = $('#roth-reward-submit');
+  const feedback = $('#roth-reward-message');
+  const user = auth.currentUser;
+  if (!user) return message(feedback, 'Sign in again before issuing a reward.', 'error');
+  const reference = $('#roth-reward-reference').value.trim();
+  const payload = {
+    handle: $('#roth-reward-handle').value.trim(),
+    amountPence: Number($('#roth-reward-amount').value),
+    campaignId: $('#roth-reward-campaign').value.trim(),
+    reason: $('#roth-reward-reason').value.trim()
+  };
+  button.disabled = true;
+  message(feedback, 'Submitting the HALO reward to the central ROTH ledger…');
+  try {
+    const headers = await getProtectedRequestHeaders(user, { 'Content-Type': 'application/json', 'Idempotency-Key': reference });
+    const response = await fetch('/api/rothIssueReward', { method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `ROTH did not accept the reward (${response.status}).`);
+    message(feedback, `Reward issued through ROTH.${result.journalId ? ` Journal ${result.journalId}.` : ''} Keep this reference for audit: ${reference}.`, 'success');
+  } catch (error) {
+    message(feedback, error.message || 'The reward was not confirmed by ROTH. Retry with the same reference.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+$('#orders').addEventListener('click', async event => {
+  const statusButton = event.target.closest('[data-order-status]');
+  const refundButton = event.target.closest('[data-order-refund]');
+  const orderId = statusButton?.dataset.orderStatus || refundButton?.dataset.orderRefund;
+  if (!orderId) return;
+  if (!auth.currentUser) return message($('#admin-notice'), 'Sign in again to continue.', 'error');
+  try {
+    if (statusButton) {
+      const status = window.prompt('Next status: processing, dispatched, delivered or cancelled');
+      if (!status) return;
+      const reason = window.prompt('Reason for this status change');
+      if (!reason) return;
+      const trackingUrl = status === 'dispatched' ? window.prompt('Secure tracking URL') : undefined;
+      const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json' });
+      const response = await fetch('/api/updateHaloOrder', { method: 'POST', headers, body: JSON.stringify({ orderId, status, reason, trackingUrl }) });
+      if (!response.ok) throw new Error((await response.json()).message || 'Order status could not be changed.');
+    } else {
+      const amount = window.prompt('Refund amount in pounds (for example 12.50)');
+      if (amount === null) return;
+      const amountPence = Math.round(Number(amount) * 100);
+      const reason = window.prompt('Reason for this refund');
+      if (!Number.isSafeInteger(amountPence) || amountPence < 1 || !reason) throw new Error('Enter a positive refund amount and reason.');
+      const refundedPence = Number(refundButton.dataset.refundedPence) || 0;
+      const requestKey = getRefundRequestKey(orderId, refundedPence);
+      const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey });
+      const refundEndpoint = refundButton.dataset.paymentProvider === 'roth' ? '/api/requestHaloRothRefund' : '/api/requestHaloRefund';
+      const response = await fetch(refundEndpoint, { method: 'POST', headers, body: JSON.stringify({ orderId, amountPence, reason }) });
+      if (!response.ok) throw new Error((await response.json()).message || 'Refund could not be requested.');
+    }
+    await loadOrders();
+  } catch (error) {
+    message($('#admin-notice'), error.message || 'Order action could not be completed.', 'error');
+  }
+});
 $('#product-image-url').addEventListener('input', event => previewImage(event.target.value.trim() || editingImage));
 $('#product-image-file').addEventListener('change', event => {
   const file = event.target.files[0];
@@ -418,6 +675,47 @@ $('#admin-products').addEventListener('click', event => {
   if (editButton) fillProductForm(catalogue.find(product => product.id === editButton.dataset.editProduct));
   if (deleteButton) removeProduct(deleteButton.dataset.deleteProduct);
 });
-$$('.admin-tab').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.adminTab)));
+
+$('#admin-products').addEventListener('click', async event => {
+  const button = event.target.closest('[data-count-stock]');
+  if (!button) return;
+  const product = catalogue.find(item => item.id === button.dataset.countStock);
+  if (!product) return;
+  const count = window.prompt(`Enter the physically counted units of ${product.title} on hand. This includes any units reserved by open checkouts.`);
+  if (count === null) return;
+  const physicalCount = Number(count);
+  const reason = window.prompt('Record the stocktake source or reason (for example, warehouse count and date).');
+  if (!Number.isSafeInteger(physicalCount) || physicalCount < 0 || !reason?.trim()) {
+    return message($('#product-message'), 'Enter a whole non-negative stock count and a stocktake reason.', 'error');
+  }
+  try {
+    const headers = await getProtectedRequestHeaders(auth.currentUser, { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() });
+    const response = await fetch(deliveryConfig.stockCountEndpoint || '/api/setHaloStockCount', {
+      method: 'POST', headers,
+      body: JSON.stringify({ productId: product.id, physicalCount, reason: reason.trim() })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || 'Stock count could not be saved.');
+    message($('#product-message'), `Stock count saved: ${physicalCount} on hand, ${result.availableQuantity} available and ${result.reservedQuantity} reserved.`, 'success');
+  } catch (error) {
+    message($('#product-message'), error.message || 'Stock count could not be saved.', 'error');
+  }
+});
+$$('.admin-tab').forEach(button => {
+  button.addEventListener('click', () => switchTab(button.dataset.adminTab));
+  button.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = $$('.admin-tab').filter(tab => !tab.hidden);
+    const currentIndex = tabs.indexOf(button);
+    const nextIndex = event.key === 'Home' ? 0
+      : event.key === 'End' ? tabs.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    if (!next) return;
+    event.preventDefault();
+    switchTab(next.dataset.adminTab);
+    next.focus();
+  });
+});
 
 resetProductForm();

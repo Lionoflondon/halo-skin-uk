@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "hosting": {
     "public": ".",
@@ -13,10 +14,21 @@
       ".firebase/**",
       "**/.*",
       "**/node_modules/**",
-      "README.md",
-      "package.json",
+      "**/*.md",
+      "**/package.json",
+      "**/package-lock.json",
+      "functions/**",
       "server/**",
-      "test/**"
+      "test/**",
+      "assets/halo-hero.jpg",
+      "assets/halo-hero-sharp.webp",
+      "assets/halo-flatlay.jpg",
+      "assets/halo-trio-botanical.jpg",
+      "assets/halo-pink-botanical.jpg",
+      "assets/halo-lifestyle.jpg",
+      "assets/halo-trio-blue.jpg",
+      "assets/halo-trio-warm.jpg",
+      "assets/halo-model-blue.jpg"
     ],
     "cleanUrls": true,
     "trailingSlash": false,
@@ -52,6 +64,24 @@
           }
         ]
       }
+    ],
+    "rewrites": [
+      { "source": "/api/createCheckoutSession", "function": { "functionId": "createCheckoutSession", "region": "europe-west2" } },
+      { "source": "/api/stripeWebhook", "function": { "functionId": "stripeWebhook", "region": "europe-west2" } },
+      { "source": "/api/getCheckoutStatus", "function": { "functionId": "getCheckoutStatus", "region": "europe-west2" } },
+      { "source": "/api/customerOrders", "function": { "functionId": "customerOrders", "region": "europe-west2" } },
+      { "source": "/api/rothLinkStart", "function": { "functionId": "rothLinkStart", "region": "europe-west2" } },
+      { "source": "/api/rothWallet", "function": { "functionId": "rothWallet", "region": "europe-west2" } },
+      { "source": "/api/createRothOrder", "function": { "functionId": "createRothOrder", "region": "europe-west2" } },
+      { "source": "/api/requestHaloRothRefund", "function": { "functionId": "requestHaloRothRefund", "region": "europe-west2" } },
+      { "source": "/api/rothIssueReward", "function": { "functionId": "rothIssueReward", "region": "europe-west2" } },
+      { "source": "/api/rothSettlements", "function": { "functionId": "rothSettlements", "region": "europe-west2" } },
+      { "source": "/api/adminOrders", "function": { "functionId": "adminOrders", "region": "europe-west2" } },
+      { "source": "/api/adminFinancialReport", "function": { "functionId": "adminFinancialReport", "region": "europe-west2" } },
+      { "source": "/api/adminReconcilePendingFinancialEntries", "function": { "functionId": "adminReconcilePendingFinancialEntries", "region": "europe-west2" } },
+      { "source": "/api/updateHaloOrder", "function": { "functionId": "updateHaloOrder", "region": "europe-west2" } },
+      { "source": "/api/requestHaloRefund", "function": { "functionId": "requestHaloRefund", "region": "europe-west2" } },
+      { "source": "/api/setHaloStockCount", "function": { "functionId": "setHaloStockCount", "region": "europe-west2" } }
     ]
   },
   "auth": {
@@ -62,5 +92,6 @@
         "supportEmail": "ayojason600@gmail.com"
       }
     }
-  }
+  },
+  "functions": [{ "source": "functions", "codebase": "halo", "runtime": "nodejs22" }]
 }

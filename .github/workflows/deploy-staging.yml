@@ -1,0 +1,190 @@
+name: Deploy HALO staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Deploy only the customer-facing HALO site, or deploy all staging services
+        type: choice
+        options:
+          - hosting-only
+          - full-staging
+        default: hosting-only
+        required: true
+
+concurrency:
+  group: halo-staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: halo-staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix functions --no-audit --no-fund
+      - run: npm test
+      - name: Validate isolated staging target
+        env:
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+          DEPLOY_SCOPE: ${{ inputs.scope }}
+        run: |
+          test -n "$PROJECT_ID"
+          test "$PROJECT_ID" != "halo-skin-uk"
+          test "$PROJECT_ID" = "halo-skin-uk-stg"
+          case "$DEPLOY_SCOPE" in hosting-only|full-staging) ;; *) echo "Unknown HALO staging deployment scope" >&2; exit 1;; esac
+      - name: Inject the staging Firebase web configuration
+        env:
+          DEPLOY_SCOPE: ${{ inputs.scope }}
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+          API_KEY: ${{ vars.HALO_FIREBASE_API_KEY }}
+          AUTH_DOMAIN: ${{ vars.HALO_FIREBASE_AUTH_DOMAIN }}
+          STORAGE_BUCKET: ${{ vars.HALO_FIREBASE_STORAGE_BUCKET }}
+          MESSAGING_SENDER_ID: ${{ vars.HALO_FIREBASE_MESSAGING_SENDER_ID }}
+          ROTH_API_ORIGIN: ${{ vars.HALO_ROTH_API_ORIGIN }}
+          ROTH_MERCHANT_KEY_ID: ${{ vars.HALO_ROTH_MERCHANT_KEY_ID }}
+          ROTH_BUSINESS_ID: ${{ vars.HALO_ROTH_BUSINESS_ID }}
+          APP_ID: ${{ vars.HALO_FIREBASE_APP_ID }}
+          APPCHECK_SITE_KEY: ${{ vars.HALO_FIREBASE_APPCHECK_SITE_KEY }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const scope = process.env.DEPLOY_SCOPE;
+          if (!['hosting-only', 'full-staging'].includes(scope)) throw new Error('Select a valid HALO staging deployment scope.');
+          const fullStaging = scope === 'full-staging';
+          const rothFields = ['ROTH_API_ORIGIN', 'ROTH_MERCHANT_KEY_ID', 'ROTH_BUSINESS_ID'];
+          const rothConfigured = fullStaging && rothFields.some(name => Boolean(process.env[name]));
+          if (rothConfigured && rothFields.some(name => !process.env[name])) throw new Error('Complete all HALO ROTH merchant settings, or leave all three unset to deploy core HALO staging without ROTH.');
+          let rothOrigin = null;
+          if (rothConfigured) {
+            rothOrigin = new URL(process.env.ROTH_API_ORIGIN);
+            if (rothOrigin.origin !== 'https://roth-stage-api-ger4wyyrja-nw.a.run.app' || rothOrigin.pathname !== '/' || rothOrigin.search || rothOrigin.hash || rothOrigin.username || rothOrigin.password) {
+              throw new Error('Set the verified ROTH staging API origin.');
+            }
+            if (!/^[A-Za-z0-9_-]{1,128}$/.test(process.env.ROTH_BUSINESS_ID)) throw new Error('Set HALO\'s independently registered ROTH staging business ID.');
+          }
+          const required = ['API_KEY', 'AUTH_DOMAIN', 'STORAGE_BUCKET', 'MESSAGING_SENDER_ID', 'APP_ID'];
+          if (fullStaging) required.push('APPCHECK_SITE_KEY');
+          if (required.some(name => !process.env[name])) {
+            throw new Error('Complete HALO staging Firebase web configuration before deploying.');
+          }
+          const stagingUrl = `https://${process.env.PROJECT_ID}.web.app`;
+          const firebase = JSON.parse(fs.readFileSync('firebase.json', 'utf8'));
+          firebase.hosting.site = process.env.PROJECT_ID;
+          fs.writeFileSync('firebase.json', JSON.stringify(firebase, null, 2));
+          if (fullStaging) {
+            const functionEnv = [
+              `HALO_SITE_URL=${stagingUrl}`,
+              `HALO_CHECKOUT_ALLOWED_ORIGINS=${stagingUrl}`,
+              'HALO_SYNTHETIC_STAGING_CHECKOUT_ENABLED=true'
+            ];
+            if (rothConfigured) functionEnv.push(
+              `HALO_ROTH_API_ORIGIN=${rothOrigin.origin}`,
+              `HALO_ROTH_MERCHANT_KEY_ID=${process.env.ROTH_MERCHANT_KEY_ID}`,
+              `HALO_ROTH_BUSINESS_ID=${process.env.ROTH_BUSINESS_ID}`
+            );
+            fs.writeFileSync(`functions/.env.${process.env.PROJECT_ID}`, [...functionEnv, ''].join('\n'));
+          }
+          const config = {
+            apiKey: process.env.API_KEY,
+            authDomain: process.env.AUTH_DOMAIN,
+            projectId: process.env.PROJECT_ID,
+            storageBucket: process.env.STORAGE_BUCKET,
+            messagingSenderId: process.env.MESSAGING_SENDER_ID,
+            appId: process.env.APP_ID,
+            appCheckSiteKey: process.env.APPCHECK_SITE_KEY || null,
+            rothEnabled: fullStaging && rothConfigured
+          };
+          if (['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'].some(name => !config[name]) ||
+              (fullStaging && !config.appCheckSiteKey) || config.authDomain !== `${config.projectId}.firebaseapp.com` ||
+              !config.appId.startsWith(`1:${config.messagingSenderId}:web:`)) {
+            throw new Error('Complete the HALO staging Firebase web configuration before deploying.');
+          }
+          fs.writeFileSync('firebase-config.js', `window.HALO_FIREBASE_CONFIG = ${JSON.stringify(config)};\nwindow.HALO_HOSTED_CHECKOUT_ENABLED = ${JSON.stringify(fullStaging)};\nwindow.HALO_ADMIN_EMAILS = ['ayojason600@gmail.com'];\n`);
+          NODE
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - name: Configure HALO payment and ROTH staging secrets in London Secret Manager
+        if: ${{ inputs.scope == 'full-staging' }}
+        env:
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.HALO_STRIPE_TEST_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.HALO_STRIPE_WEBHOOK_SECRET }}
+          ROTH_API_ORIGIN: ${{ vars.HALO_ROTH_API_ORIGIN }}
+          ROTH_MERCHANT_KEY_ID: ${{ vars.HALO_ROTH_MERCHANT_KEY_ID }}
+          ROTH_BUSINESS_ID: ${{ vars.HALO_ROTH_BUSINESS_ID }}
+          ROTH_MERCHANT_SECRET: ${{ secrets.HALO_ROTH_MERCHANT_SECRET }}
+        run: |
+          test -n "$STRIPE_SECRET_KEY"
+          test -n "$STRIPE_WEBHOOK_SECRET"
+          case "$STRIPE_SECRET_KEY" in sk_test_*|rk_test_*) ;; *) echo "HALO requires a Stripe test-mode key" >&2; exit 1;; esac
+          write_london_secret() {
+            local name="$1"
+            local value="$2"
+            local exists="false"
+            if gcloud secrets describe "$name" --project "$PROJECT_ID" >/dev/null 2>&1; then
+              exists="true"
+              local locations
+              locations="$(gcloud secrets describe "$name" --project "$PROJECT_ID" --format='value(replication.userManaged.replicas.location)' | tr '\n' ',')"
+              if [[ "$locations" != "europe-west2," ]]; then
+                echo "$name exists without the required London-only replication policy; refusing to add another version." >&2
+                return 1
+              fi
+            fi
+            if [[ "$exists" == "false" ]]; then
+              printf %s "$value" | gcloud secrets create "$name" --project "$PROJECT_ID" --data-file=- --replication-policy=user-managed --locations=europe-west2
+            else
+              local current_value
+              current_value="$(mktemp)"
+              if ! gcloud secrets versions access latest --secret "$name" --project "$PROJECT_ID" --out-file "$current_value" >/dev/null; then
+                rm -f "$current_value"
+                echo "Could not safely compare the latest $name version; refusing to add another secret version." >&2
+                return 1
+              fi
+              if printf %s "$value" | cmp -s - "$current_value"; then
+                rm -f "$current_value"
+                return 0
+              fi
+              rm -f "$current_value"
+              printf %s "$value" | gcloud secrets versions add "$name" --project "$PROJECT_ID" --data-file=-
+            fi
+          }
+          write_london_secret STRIPE_SECRET_KEY "$STRIPE_SECRET_KEY"
+          write_london_secret STRIPE_WEBHOOK_SECRET "$STRIPE_WEBHOOK_SECRET"
+          roth_fields=0
+          for value in "$ROTH_API_ORIGIN" "$ROTH_MERCHANT_KEY_ID" "$ROTH_BUSINESS_ID"; do
+            if [[ -n "$value" ]]; then roth_fields=$((roth_fields + 1)); fi
+          done
+          if [[ "$roth_fields" -eq 0 && -z "$ROTH_MERCHANT_SECRET" ]]; then
+            :
+          elif [[ "$roth_fields" -eq 3 && -n "$ROTH_MERCHANT_SECRET" ]]; then
+            write_london_secret HALO_ROTH_MERCHANT_SECRET "$ROTH_MERCHANT_SECRET"
+          else
+            echo "Configure all HALO ROTH merchant settings and the signing secret together, or leave them all unset." >&2
+            exit 1
+          fi
+      - name: Deploy only to the configured HALO staging project
+        env:
+          DEPLOY_SCOPE: ${{ inputs.scope }}
+          PROJECT_ID: ${{ vars.HALO_STAGING_PROJECT_ID }}
+        run: |
+          if [[ "$DEPLOY_SCOPE" == "hosting-only" ]]; then
+            npx --yes firebase-tools@13.35.1 deploy --only hosting --project "$PROJECT_ID" --non-interactive
+          elif [[ "$DEPLOY_SCOPE" == "full-staging" ]]; then
+            npx --yes firebase-tools@13.35.1 deploy --only hosting,functions,firestore:rules,firestore:indexes,auth --project "$PROJECT_ID" --non-interactive
+          else
+            echo "Unknown HALO staging deployment scope" >&2
+            exit 1
+          fi
+      - name: Verify staging API auth and method gates without creating data
+        if: ${{ inputs.scope == 'full-staging' }}
+        run: node scripts/verify-halo-staging.mjs

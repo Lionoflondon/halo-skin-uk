@@ -42,13 +42,15 @@
           <a class="store-link" href="index.html#shop" target="_blank" rel="noopener">View storefront ↗</a>
         </div>
 
-        <nav class="admin-tabs" aria-label="Admin sections">
-          <button class="admin-tab active" type="button" data-admin-tab="products">Products</button>
-          <button class="admin-tab" type="button" data-admin-tab="deliveries">Deliveries</button>
-          <button class="admin-tab" type="button" data-admin-tab="account">Account</button>
+        <nav class="admin-tabs" role="tablist" aria-label="Admin sections">
+          <button class="admin-tab active" id="admin-tab-products" type="button" role="tab" aria-selected="true" aria-controls="admin-panel-products" tabindex="0" data-admin-tab="products">Products</button>
+          <button class="admin-tab" id="admin-tab-deliveries" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-deliveries" tabindex="-1" data-admin-tab="deliveries">Deliveries</button>
+          <button class="admin-tab" id="admin-tab-finance" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-finance" tabindex="-1" data-admin-tab="finance">Finance</button>
+          <button class="admin-tab" id="admin-tab-rewards" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-rewards" tabindex="-1" data-admin-tab="rewards">ROTH rewards</button>
+          <button class="admin-tab" id="admin-tab-account" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-account" tabindex="-1" data-admin-tab="account">Account</button>
         </nav>
 
-        <section class="admin-section active" data-admin-panel="products">
+        <section class="admin-section active" id="admin-panel-products" role="tabpanel" aria-labelledby="admin-tab-products" tabindex="0" data-admin-panel="products">
           <div class="product-admin-grid">
             <form class="product-form" id="product-form">
               <div class="panel-heading">
@@ -103,21 +105,55 @@
           </div>
         </section>
 
-        <section class="admin-section" data-admin-panel="deliveries">
+        <section class="admin-section" id="admin-panel-deliveries" role="tabpanel" aria-labelledby="admin-tab-deliveries" tabindex="0" hidden data-admin-panel="deliveries">
           <div class="panel-heading deliveries-heading">
             <div><p class="eyebrow">FULFILMENT</p><h2>Halo deliveries</h2></div>
             <button class="secondary-button" id="refresh" type="button">Refresh</button>
           </div>
-          <div class="notice" id="admin-notice">Connect the Halo orders endpoint in delivery-config.js to display live orders.</div>
+              <div class="notice" id="admin-notice">HALO orders are available to an authorised administrator with a recent MFA sign-in.</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Order</th><th>Customer</th><th>Delivery method</th><th>Circum Delivery ID</th><th>Current status</th><th>Tracking</th></tr></thead>
-              <tbody id="orders"><tr><td colspan="6" class="empty">No delivery data loaded.</td></tr></tbody>
+              <thead><tr><th>Order</th><th>Items</th><th>Total / refunded</th><th>Fulfilment</th><th>Payment</th><th>Tracking</th></tr></thead>
+              <tbody id="orders"><tr><td colspan="6" class="empty">No orders loaded.</td></tr></tbody>
             </table>
           </div>
         </section>
 
-        <section class="admin-section account-section" data-admin-panel="account">
+        <section class="admin-section" id="admin-panel-finance" role="tabpanel" aria-labelledby="admin-tab-finance" tabindex="0" hidden data-admin-panel="finance">
+          <div class="panel-heading">
+            <div><p class="eyebrow">ROTHCROSS · SHARED STRIPE ACCOUNT</p><h2>HALO financial reconciliation</h2></div>
+            <div class="panel-actions">
+              <button class="secondary-button" id="reconcile-finance" type="button" hidden>Resolve pending</button>
+              <button class="secondary-button" id="refresh-finance" type="button">Refresh</button>
+            </div>
+          </div>
+          <p class="notice" id="finance-notice">This report includes HALO-labelled Stripe transactions only and keeps them separate from CORPVS CHRISTI and other Rothcross businesses.</p>
+          <p class="catalogue-summary" id="finance-account">Waiting for a secure staging reconciliation.</p>
+          <div class="status-row finance-totals" id="finance-totals" aria-live="polite"></div>
+          <div class="table-wrap"><table><thead><tr><th>Source</th><th>Order</th><th>Gross</th><th>Processor fee</th><th>Net</th><th>Reconciliation</th></tr></thead><tbody id="finance-entries"><tr><td colspan="6" class="empty">No reconciliation loaded.</td></tr></tbody></table></div>
+        </section>
+
+        <section class="admin-section" id="admin-panel-rewards" role="tabpanel" aria-labelledby="admin-tab-rewards" tabindex="0" hidden data-admin-panel="rewards">
+          <div class="panel-heading">
+            <div><p class="eyebrow">CENTRAL ROTH LEDGER</p><h2>Issue HALO reward</h2></div>
+          </div>
+          <p class="notice">Rewards are issued by the central ROTH ledger under HALO’s merchant identity. Each request needs a stable reference, campaign and reason. ROTH merchant registration, issuance scope and allowance must be active before this form can succeed.</p>
+          <form class="password-form" id="roth-reward-form">
+            <label>Customer ROTH handle<input id="roth-reward-handle" autocomplete="off" required maxlength="100"></label>
+            <label>Amount in pence<input id="roth-reward-amount" type="number" min="1" step="1" required></label>
+            <label>Campaign ID<input id="roth-reward-campaign" required maxlength="100"></label>
+            <label>Reason<input id="roth-reward-reason" required maxlength="300"></label>
+            <label>Stable reward reference<input id="roth-reward-reference" required minlength="16" maxlength="128" autocomplete="off"></label>
+            <small>Use the same reference if you retry after a network error. Only a recently authenticated administrator with MFA can submit.</small>
+            <button class="primary-button" id="roth-reward-submit" type="submit">Issue through ROTH</button>
+            <p class="form-message" id="roth-reward-message" role="status"></p>
+          </form>
+          <div class="panel-heading"><div><p class="eyebrow">MERCHANT ACCOUNTING</p><h3>ROTH settlement activity</h3></div><button class="secondary-button" id="refresh-roth-settlements" type="button">Refresh</button></div>
+          <p class="notice" id="roth-settlement-notice">Settlement results are fetched from the central ROTH ledger for HALO's registered merchant identity.</p>
+          <div class="table-wrap"><table><thead><tr><th>Settlement</th><th>Counterparty</th><th>Funding</th><th>Amount</th><th>Status</th><th>Reservation</th></tr></thead><tbody id="roth-settlement-rows"><tr><td colspan="6" class="empty">No ROTH report loaded.</td></tr></tbody></table></div>
+        </section>
+
+        <section class="admin-section account-section" id="admin-panel-account" role="tabpanel" aria-labelledby="admin-tab-account" tabindex="0" hidden data-admin-panel="account">
           <div class="panel-heading">
             <div><p class="eyebrow">SECURITY</p><h2>Admin password</h2></div>
           </div>
@@ -129,12 +165,14 @@
             <button class="primary-button" id="save-password" type="submit">Set new password</button>
             <p class="form-message" id="password-message" role="status"></p>
           </form>
+          <button class="primary-button" id="enrol-authenticator" type="button">Set up authenticator app</button>
+          <p class="form-message" id="authenticator-message" role="status"></p>
         </section>
       </section>
     </main>
 
     <script src="firebase-config.js"></script>
     <script src="delivery-config.js"></script>
-    <script type="module" src="admin.js?v=4"></script>
+    <script type="module" src="admin.js?v=11"></script>
   </body>
 </html>
